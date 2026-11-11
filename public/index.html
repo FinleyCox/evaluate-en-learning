@@ -19,15 +19,76 @@
 </header>
 
 <nav class="tabs">
-  <button class="tab active" data-tab="practice">1. 練習</button>
+  <button class="tab active" data-tab="progress">上達</button>
+  <button class="tab" data-tab="practice">1. 練習</button>
   <button class="tab" data-tab="review">2. 評価・採点</button>
   <button class="tab" data-tab="report">3. 判定レポート</button>
   <button class="tab" data-tab="spec">評価軸・ペルソナ</button>
 </nav>
 
 <main>
+  <!-- 上達（ホーム） -->
+  <section id="progress" class="panel active">
+    <div class="card">
+      <div class="row between">
+        <div>
+          <p class="hello" id="hello">こんにちは</p>
+          <p class="muted" id="progress-meta"></p>
+        </div>
+        <label>講師
+          <select id="teacher-picker"></select>
+        </label>
+      </div>
+      <div class="tiles" id="progress-tiles"></div>
+    </div>
+
+    <div class="card" id="nextup-card">
+      <div class="nextup">
+        <div>
+          <div class="t">次に取り組むこと</div>
+          <div class="l" id="nextup-label">—</div>
+          <div class="r" id="nextup-reason"></div>
+        </div>
+        <button id="nextup-btn" class="primary">この場面を練習する</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>週の練習</h2>
+      <p class="muted">過去5週間。丸が濃いほどその日の練習回数が多い</p>
+      <div id="weekgrid"></div>
+      <div class="legend">
+        <span><i></i>練習なし</span>
+        <span><i class="l1"></i>1回</span>
+        <span><i class="l2"></i>2回</span>
+        <span><i class="l3"></i>3回以上</span>
+        <span><i class="today"></i>今日</span>
+      </div>
+      <details class="tableview"><summary>表で見る</summary><div id="weektable"></div></details>
+    </div>
+
+    <div class="card">
+      <h2>評価軸の上達</h2>
+      <p class="muted">評価AIの採点の平均（5点満点）。伸びは、練習回数の前半と後半の平均差</p>
+      <div class="bars" id="axisbars"></div>
+      <details class="tableview"><summary>表で見る</summary><div id="axistable"></div></details>
+    </div>
+
+    <div class="card">
+      <h2>総合スコアの推移</h2>
+      <p class="muted">1回の練習で採点対象になった軸の平均。古い回から順に並ぶ</p>
+      <div id="trend"></div>
+    </div>
+
+    <div class="card">
+      <h2>場面の制覇</h2>
+      <p class="muted">6つの場面それぞれの練習回数と平均スコア</p>
+      <div class="scenegrid" id="scenegrid"></div>
+    </div>
+  </section>
+
   <!-- 1. 練習 -->
-  <section id="practice" class="panel active">
+  <section id="practice" class="panel">
     <div class="setup card" id="setup">
       <h2>練習を始める</h2>
       <div class="row">

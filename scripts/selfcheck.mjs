@@ -60,4 +60,47 @@ assert.equal(stab.value, 1);
 assert.equal(stab.pass, true);
 console.log("✓ 判定レポート κ=", report.agreement.kappa, "/", report.agreement.label);
 
+
+/* 4) 上達（講師ごとの進捗集計） */
+import { buildProgress, listTeachers } from "../server/progress.mjs";
+const DAY2 = 86400000;
+const mkPractice = (daysAgo, sceneId, scores, trainer) => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const at = d.getTime() - daysAgo * DAY2 + 10 * 3600000;
+  return {
+    id: `p${daysAgo}`, createdAt: at, teacherName: "T", sceneId,
+    turns: [{ role: "teacher", text: "Hi there", at }, { role: "student", text: "Hello", at: at + 60000 }],
+    evaluation: { axes: rubric.axes.map((a) => ({ id: a.id, applicable: Boolean(scores[a.id]), score: scores[a.id] ?? 3, rationale: "", evidence: [] })), counts: {}, summary: {} },
+    trainer: trainer ? { scores: trainer } : null,
+  };
+};
+// 3日前・2日前・今日 → 今日まで途切れていないのは 2日前と今日ではなく、昨日が抜けるので current=1
+const sessions = [
+  mkPractice(3, "lobby3", { awareness: 2 }),
+  mkPractice(2, "lobby3", { awareness: 3 }),
+  mkPractice(0, "care1", { waitTime: 5 }, { waitTime: 4 }),
+];
+const prog = buildProgress(sessions, "T");
+assert.equal(prog.sessions, 3);
+assert.equal(prog.streak.current, 1, "昨日が抜けているので連続は今日の1日だけ");
+assert.equal(prog.streak.activeDays, 3);
+assert.equal(prog.scenesCovered, 2);
+assert.equal(prog.week.rows.length, 5);
+assert.equal(prog.week.rows[0].length, 7);
+assert.equal(prog.week.rows.flat().filter((c) => c.isToday).length, 1, "今日は週グリッドに1つだけ");
+assert.equal(prog.week.rows.flat().reduce((a, c) => a + c.count, 0), 3, "5週間の合計が練習回数と一致");
+const aw = prog.axes.find((a) => a.id === "awareness");
+assert.equal(aw.attempts, 2);
+assert.equal(aw.first, 2);
+assert.equal(aw.latest, 3);
+assert.equal(aw.delta, 1, "前半2点→後半3点で +1");
+assert.equal(prog.axes.find((a) => a.id === "recall").attempts, 0);
+assert.equal(prog.nextUp.type, "scene", "未練習の場面があればそれを次に出す");
+assert.ok(prog.practiceSeconds >= 180, "1セッション60秒 x 3");
+assert.equal(prog.recent[0].sessionId, "p0", "直近が先頭");
+assert.equal(prog.recent[0].trainerOverall, 4);
+assert.equal(listTeachers(sessions).length, 1);
+console.log("✓ 上達 連続", prog.streak.current, "日 / 制覇", prog.scenesCovered + "/" + prog.scenesTotal, "/ 気づきの伸び", aw.delta);
+
 console.log("\nすべて通りました。");

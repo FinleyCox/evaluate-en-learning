@@ -6,6 +6,7 @@ import { studentTurn } from "./student.mjs";
 import { computeMetrics } from "./metrics.mjs";
 import { evaluate, evaluateStability } from "./evaluator.mjs";
 import { buildReport } from "./report.mjs";
+import { buildProgress, listTeachers } from "./progress.mjs";
 import * as store from "./store.mjs";
 
 const PUBLIC = path.join(ROOT, "public");
@@ -66,6 +67,17 @@ const server = http.createServer(async (req, res) => {
         evaluated: Boolean(s.evaluation), trainerRated: Boolean(s.trainer?.scores),
         stability: s.stability?.maxDiff ?? null,
       })));
+    }
+
+    if (p === "/api/teachers" && req.method === "GET") {
+      return json(res, 200, listTeachers(store.listSessions()));
+    }
+
+    if (p === "/api/progress" && req.method === "GET") {
+      const all = store.listSessions();
+      const name = url.searchParams.get("teacher") || listTeachers(all)[0]?.name;
+      if (!name) return json(res, 200, null);
+      return json(res, 200, buildProgress(all, name));
     }
 
     if (p === "/api/report" && req.method === "GET") {

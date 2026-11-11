@@ -18,8 +18,9 @@ const api = async (url, opts) => {
 const S = {
   config: null,
   session: null,
-  scene: null,
   thinking: null, // { start, timer, tick, node }
+  sending: false, // 送信中フラグ。連打でターンが消えるのを防ぐ
+  progress: null,
 };
 
 /* ---------- 起動 ---------- */
@@ -37,13 +38,14 @@ const S = {
   for (const id of ["t-useful", "t-trust"]) {
     const s = $(id);
     s.appendChild(new Option("—", ""));
-    for (let i = 5; i >= 1; i--) s.appendChild(new Option(`${i}`, String(i)));
+    for (let i = S.config.rubric.scale; i >= 1; i--) s.appendChild(new Option(`${i}`, String(i)));
     s.value = "4";
   }
 
   renderSpec();
   await refreshSessions();
   await loadReport();
+  await loadProgress();
 })();
 
 document.querySelectorAll(".tab").forEach((t) => {
@@ -53,6 +55,7 @@ document.querySelectorAll(".tab").forEach((t) => {
     t.classList.add("active");
     $(t.dataset.tab).classList.add("active");
     if (t.dataset.tab === "report") loadReport();
+    if (t.dataset.tab === "progress") loadProgress();
   };
 });
 const goTab = (name) => document.querySelector(`.tab[data-tab="${name}"]`).click();
@@ -71,11 +74,10 @@ $("start-btn").onclick = async () => {
     body: JSON.stringify({ sceneId, teacherName: $("teacher-name").value }),
   });
   S.session = session;
-  S.scene = scene;
   $("setup").classList.add("hidden");
   $("chatwrap").classList.remove("hidden");
   $("chat-scene").textContent = scene.name;
-  $("chat-persona").textContent = `　生徒役: ${S.config.persona.name}（${S.config.persona.profile.englishLevel.value}）`;
+  $("chat-persona").textContent = `生徒役: ${S.config.persona.name}（${S.config.persona.profile.englishLevel.value}）`;
   $("chat").innerHTML = "";
   for (const t of session.turns) addBubble(t.role, t.text);
   $("input").focus();
@@ -106,7 +108,7 @@ function startThinking(ms, onDone) {
   const timer = setTimeout(() => finishThinking(), ms);
   S.thinking = { start, timer, tick, node, onDone };
 }
-function finishThinking(interrupted = false) {
+function finishThinking() {
   if (!S.thinking) return 0;
   const { start, timer, tick, node, onDone } = S.thinking;
   clearTimeout(timer);
@@ -114,7 +116,7 @@ function finishThinking(interrupted = false) {
   node.remove();
   S.thinking = null;
   const waited = Date.now() - start;
-  onDone(interrupted, waited);
+  onDone();
   return waited;
 }
 
@@ -129,11 +131,12 @@ function speak(text) {
 async function send() {
   const input = $("input");
   const text = input.value.trim();
-  if (!text || !S.session) return;
+  if (!text || !S.session || S.sending) return;
+  S.sending = true;
 
   let interruptedAtMs = null;
   if (S.thinking) {
-    interruptedAtMs = finishThinking(true);
+    interruptedAtMs = finishThinking();
     addNotice(`沈黙中に割り込みました（${(interruptedAtMs / 1000).toFixed(1)}秒）`);
   }
 
@@ -153,6 +156,7 @@ async function send() {
   } catch (err) {
     addNotice(`エラー: ${err.message}`);
   } finally {
+    S.sending = false;
     $("send-btn").disabled = false;
     input.focus();
   }
@@ -187,15 +191,29 @@ else {
 }
 
 $("finish-btn").onclick = async () => {
-  if (S.thinking) finishThinking(false);
+  if (S.thinking) finishThinking();
   await openSession(S.session.id);
   goTab("review");
 };
 
 /* ---------- 2. 評価・採点 ---------- */
+// 右側は「自動計測／採点／講評／トレーナー採点」を切り替えて1画面に収める
+function showSub(id) {
+  document.querySelectorAll(".subtab").forEach((b) => b.classList.toggle("active", b.dataset.sub === id));
+  document.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("active", p.id === id));
+}
+function enableEvalSubs(on) {
+  document.querySelectorAll(".subtab[data-needs-eval]").forEach((b) => { b.disabled = !on; });
+  if (!on) showSub("sub-metrics");
+}
+document.querySelectorAll(".subtab").forEach((b) => {
+  b.onclick = () => showSub(b.dataset.sub);
+});
+
 async function refreshSessions() {
   const list = await api("/api/sessions");
   const sel = $("session-picker");
+  const keep = sel.value;
   sel.innerHTML = "";
   for (const s of list) {
     const sc = S.config.scenes.find((x) => x.id === s.sceneId);
@@ -204,6 +222,7 @@ async function refreshSessions() {
       s.id
     ));
   }
+  if (keep && list.some((s) => s.id === keep)) sel.value = keep;
   return list;
 }
 $("load-session").onclick = () => $("session-picker").value && openSession($("session-picker").value);
@@ -211,16 +230,35 @@ $("load-session").onclick = () => $("session-picker").value && openSession($("se
 async function openSession(id) {
   const s = await api(`/api/sessions/${id}`);
   S.session = s;
-  S.scene = S.config.scenes.find((x) => x.id === s.sceneId);
-  $("review-empty").classList.add("hidden");
+  $("review-hint").classList.add("hidden");
   $("review-body").classList.remove("hidden");
+  renderTranscript(s);
   renderMetrics(s.metrics);
   if (s.evaluation) renderEvaluation(s.evaluation, s.stability);
-  else {
-    $("eval-card").classList.add("hidden");
-    $("trainer-card").classList.add("hidden");
-  }
+  else enableEvalSubs(false);
   await refreshSessions();
+}
+
+/** 評価タブに会話ログを出す。トレーナーはこれを読んで独立に採点する。 */
+function renderTranscript(session) {
+  const scene = S.config.scenes.find((x) => x.id === session.sceneId);
+  $("transcript-meta").textContent =
+    `${scene ? scene.name : session.sceneId}　/　講師: ${session.teacherName}　/　${session.turns.length}ターン`;
+  const box = $("transcript");
+  box.innerHTML = "";
+  for (const t of session.turns) {
+    const b = el("div", `bubble ${t.role}`);
+    b.appendChild(el("span", "who", t.role === "teacher" ? "講師" : S.config.persona.name));
+    b.appendChild(document.createTextNode(t.text));
+    box.appendChild(b);
+    if (t.role === "student" && typeof t.thinkingMs === "number") {
+      const waited = typeof t.interruptedAtMs === "number" ? t.interruptedAtMs : t.thinkingMs;
+      box.appendChild(el("div", "notice",
+        typeof t.interruptedAtMs === "number"
+          ? `この発話の前に${(t.thinkingMs / 1000).toFixed(1)}秒の沈黙。講師は${(waited / 1000).toFixed(1)}秒で割り込んだ`
+          : `この発話の前に${(t.thinkingMs / 1000).toFixed(1)}秒の沈黙。講師は最後まで待った`));
+    }
+  }
 }
 
 function renderMetrics(m) {
@@ -268,11 +306,12 @@ async function runEvaluation(stability) {
   }
 }
 
-const dots = (n) => `<span class="dots5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
+const steps = () => Array.from({ length: S.config.rubric.scale }, (_, i) => i + 1);
+const dots = (n) => `<span class="dots5">${steps().map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
 
 function renderEvaluation(ev, stability) {
-  $("eval-card").classList.remove("hidden");
-  $("trainer-card").classList.remove("hidden");
+  enableEvalSubs(true);
+  showSub("sub-eval");
 
   const axesBox = $("axes");
   axesBox.innerHTML = "";
@@ -283,7 +322,7 @@ function renderEvaluation(ev, stability) {
       <div class="axis-head">
         <div><span class="axis-name">${esc(def.name)}</span>
           <div class="axis-behavior">${esc(def.behavior)}</div></div>
-        <div class="score">${a.applicable ? `${a.score} / 5 ${dots(a.score)}` : "該当行動なし"}</div>
+        <div class="score">${a.applicable ? `${a.score} / ${S.config.rubric.scale} ${dots(a.score)}` : "該当行動なし"}</div>
       </div>
       <div class="rationale">${esc(a.rationale)}</div>
       ${(a.evidence || []).map((e) => `
@@ -328,7 +367,7 @@ function renderTrainerForm(ev) {
           <div class="axis-behavior">${esc(def.behavior)}${a.applicable ? "" : "（AIは該当行動なしと判定）"}</div></div>
         <select data-axis="${esc(a.id)}">
           <option value="">—（採点しない）</option>
-          ${[1, 2, 3, 4, 5].map((i) => `<option value="${i}" ${saved === i ? "selected" : ""}>${i}: ${esc(def.descriptors[i])}</option>`).join("")}
+          ${steps().map((i) => `<option value="${i}" ${saved === i ? "selected" : ""}>${i}: ${esc(def.descriptors[i])}</option>`).join("")}
         </select>
       </div>`;
     box.appendChild(row);
@@ -364,6 +403,7 @@ $("trainer-submit").onclick = async () => {
   applyBlind();
   await refreshSessions();
   await loadReport();
+  await loadProgress();
   goTab("report");
 };
 
@@ -403,8 +443,8 @@ async function loadReport() {
   const a = r.agreement;
   $("kappa-overall").innerHTML = `
     <div class="row between">
-      <div><span class="kappa-big">${a.kappa === null ? "—" : a.kappa}</span>
-        <span class="muted">　重み付きκ（二次重み）／ ${esc(a.label)}　基準 0.61以上</span></div>
+      <div class="minw"><span class="kappa-big">${a.kappa === null ? "—" : a.kappa}</span>
+        <span class="muted kappa-sub">重み付きκ（二次重み）／ ${esc(a.label)}　基準 0.61以上</span></div>
       <div class="muted">完全一致 ${a.exact === null ? "—" : (a.exact * 100).toFixed(0) + "%"}　／　
         ±1以内 ${a.within1 === null ? "—" : (a.within1 * 100).toFixed(0) + "%"}　／　
         平均絶対差 ${a.meanAbsDiff ?? "—"}　／　
@@ -442,7 +482,7 @@ function renderSpec() {
   $("spec-rubric").innerHTML = S.config.rubric.axes
     .map((a) => `<div class="spec-item"><b>${esc(a.name)}</b>　<span class="muted">${esc(a.behavior)}</span>
       <div class="muted">採点の手がかり: ${esc(a.cue)}</div>
-      <div>${[1, 2, 3, 4, 5].map((i) => `${i}: ${esc(a.descriptors[i])}`).join("<br>")}</div></div>`)
+      <div class="spec-steps">${steps().map((i) => `${i}: ${esc(a.descriptors[i])}`).join("<br>")}</div></div>`)
     .join("") + `<p class="muted">出典: ${esc(S.config.rubric.source)}</p>`;
 
   const p = S.config.persona.profile;
@@ -460,3 +500,150 @@ function renderSpec() {
       <div class="muted">想定課題: ${esc(s.issue)}</div><div>生徒役の設定: ${esc(s.studentSetup)}</div></div>`)
     .join("");
 }
+
+/* ---------- 上達（ホーム） ---------- */
+const fmtDate = (ms) => {
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+const fmtMin = (sec) => {
+  const m = Math.round(sec / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}<small>時間</small>${m % 60}<small>分</small>` : `${m}<small>分</small>`;
+};
+
+async function loadProgress(teacher) {
+  const teachers = await api("/api/teachers");
+  const sel = $("teacher-picker");
+  const keep = teacher || sel.value;
+  sel.innerHTML = "";
+  for (const t of teachers) sel.appendChild(new Option(`${t.name}（${t.sessions}回）`, t.name));
+  if (keep && teachers.some((t) => t.name === keep)) sel.value = keep;
+
+  if (!teachers.length) return renderProgressEmpty();
+  const p = await api(`/api/progress?teacher=${encodeURIComponent(sel.value)}`);
+  if (!p) return renderProgressEmpty();
+  S.progress = p;
+  renderProgress(p);
+}
+
+function renderProgressEmpty() {
+  $("hello").textContent = "ようこそ";
+  $("progress-meta").textContent = "まだ練習の記録がありません。";
+  $("progress-tiles").innerHTML =
+    `<div class="empty" style="grid-column:1/-1"><div class="big">最初の練習をはじめましょう</div>
+     <p class="muted">1回練習すると、ここに上達の記録が出ます。デモデータを入れるなら <code>npm run seed</code></p>
+     <button class="primary" onclick="document.querySelector('.tab[data-tab=practice]').click()">練習を始める</button></div>`;
+  for (const id of ["weekgrid", "axisbars", "trend", "scenegrid", "weektable", "axistable"]) $(id).innerHTML = "";
+  $("nextup-card").classList.add("hidden");
+}
+
+function renderProgress(p) {
+  $("nextup-card").classList.toggle("hidden", !p.nextUp);
+  $("hello").textContent = `こんにちは、${p.teacher} さん`;
+  $("progress-meta").textContent = p.firstAt
+    ? `${fmtDate(p.firstAt)} から ${p.sessions} 回練習（最後は ${fmtDate(p.lastAt)}）`
+    : "";
+
+  // 1) 数値タイル（ヒーロー数値：グラフにするより数字のほうが速く読める）
+  const pct = p.overall.avg ? Math.round((p.overall.avg / S.config.rubric.scale) * 100) : 0;
+  $("progress-tiles").innerHTML = [
+    `<div class="tile hero"><span class="k">総合スコア</span><span class="v">${p.overall.avg ?? "—"}<small> / ${S.config.rubric.scale}</small></span><span class="s">到達 ${pct}%　最高 ${p.overall.best ?? "—"}</span></div>`,
+    `<div class="tile"><span class="k">練習時間</span><span class="v">${fmtMin(p.practiceSeconds)}</span><span class="s">${p.sessions} 回ぶん</span></div>`,
+    `<div class="tile"><span class="k">連続練習日数</span><span class="v" style="color:var(--accent)">${p.streak.current}<small> 日</small></span><span class="s">最長 ${p.streak.longest} 日 / 練習した日 ${p.streak.activeDays} 日</span></div>`,
+    `<div class="tile"><span class="k">場面の制覇</span><span class="v">${p.scenesCovered}<small> / ${p.scenesTotal}</small></span><span class="s">6場面のうち練習済み</span></div>`,
+  ].join("");
+
+  // 2) 週の練習（順序尺度のドットグリッド）
+  const cells = [];
+  for (const row of p.week.rows) {
+    for (const c of row) {
+      const cls = ["wk", c.level ? `l${c.level}` : "", c.isToday ? "today" : "", c.isFuture ? "future" : ""].filter(Boolean).join(" ");
+      cells.push(`<div class="${cls}" title="${esc(c.date)}　${c.count}回"></div>`);
+    }
+  }
+  $("weekgrid").innerHTML =
+    `<div class="weekgrid">${cells.join("")}</div>
+     <div class="wklabels">${p.week.labels.map((l, i) => {
+       const todayCol = p.week.rows[p.week.rows.length - 1][i]?.isToday;
+       return `<span class="${todayCol ? "now" : ""}">${l}</span>`;
+     }).join("")}</div>`;
+  $("weektable").innerHTML =
+    `<table><tr><th>日付</th><th>練習回数</th></tr>` +
+    p.week.rows.flat().filter((c) => c.count > 0).reverse()
+      .map((c) => `<tr><td>${esc(c.date)}</td><td>${c.count}</td></tr>`).join("") + `</table>`;
+
+  // 3) 評価軸の上達（単一系列の横棒。凡例は不要、値は直接ラベル）
+  $("axisbars").innerHTML = p.axes.map((a) => {
+    const has = a.attempts > 0;
+    const w = has ? (a.avg / S.config.rubric.scale) * 100 : 0;
+    const d = a.delta;
+    const dCls = d === null ? "flat" : d > 0.05 ? "up" : d < -0.05 ? "down" : "flat";
+    const dTxt = d === null ? "" : `<span class="delta ${dCls}">${d > 0.05 ? "▲+" : d < -0.05 ? "▼" : "±"}${Math.abs(d).toFixed(1)}</span>`;
+    return `<div class="bar-row ${has ? "" : "none"}">
+      <div class="bar-top">
+        <div class="bar-label"><span class="bar-name">${esc(a.name)}</span>
+          <span class="bar-sub">${esc(a.behavior)} / ${a.attempts}回</span></div>
+        <div class="bar-val">${has ? a.avg.toFixed(1) : "—"}${has ? dTxt : ""}</div>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${w}%"></div></div>
+    </div>`;
+  }).join("");
+  $("axistable").innerHTML =
+    `<table><tr><th>評価軸</th><th>回数</th><th>平均</th><th>初回</th><th>直近</th><th>最高</th><th>伸び</th></tr>` +
+    p.axes.map((a) => `<tr><td>${esc(a.name)}</td><td>${a.attempts}</td><td>${a.avg ?? "—"}</td>
+      <td>${a.first ?? "—"}</td><td>${a.latest ?? "—"}</td><td>${a.best ?? "—"}</td><td>${a.delta ?? "—"}</td></tr>`).join("") +
+    `</table>`;
+
+  // 4) 総合スコアの推移（1系列の折れ線。凡例なし、端だけ直接ラベル）
+  $("trend").innerHTML = sparkline(p.recent.slice().reverse());
+
+  // 5) 場面の制覇
+  $("scenegrid").innerHTML = p.scenes.map((s) =>
+    `<div class="scard ${s.count ? "done" : ""}">
+      <span class="n">${esc(s.name)}</span><span class="g">${esc(s.group)}</span>
+      <div class="c">${s.count}<small> 回</small>　${s.avg !== null ? `<small>平均 </small>${s.avg}` : "<small>未練習</small>"}</div>
+    </div>`).join("");
+
+  if (p.nextUp) {
+    $("nextup-label").textContent = p.nextUp.label;
+    $("nextup-reason").textContent = p.nextUp.reason;
+    $("nextup-btn").dataset.scene = p.nextUp.sceneId || "";
+    $("nextup-btn").classList.toggle("hidden", !p.nextUp.sceneId);
+  }
+}
+
+/** 総合スコアの推移。1系列なので凡例は置かず、最初と最後だけ値を直接書く。 */
+function sparkline(points) {
+  if (points.length < 2) return `<p class="muted">推移を描くには練習が2回以上必要です。</p>`;
+  // 縦横比はペインの幅に合わせて決め打つ（比を保って拡大するので文字は潰れない）
+  const W = 340, H = 104, PX = 22, PY = 16;
+  const x = (i) => PX + (i / (points.length - 1)) * (W - PX * 2);
+  const y = (v) => PY + (1 - (v - 1) / (S.config.rubric.scale - 1)) * (H - PY * 2);
+  const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.overall).toFixed(1)}`).join(" ");
+  const mid = Math.ceil(S.config.rubric.scale / 2);
+  const grid = [1, mid, S.config.rubric.scale].map((v) =>
+    `<line class="gl" x1="${PX}" y1="${y(v)}" x2="${W - PX}" y2="${y(v)}"></line>
+     <text x="0" y="${y(v) + 3}">${v}</text>`).join("");
+  const marks = points.map((p, i) =>
+    `<circle class="pt" cx="${x(i).toFixed(1)}" cy="${y(p.overall).toFixed(1)}" r="4.5">
+      <title>${esc(fmtDate(p.at))}　${esc(p.sceneName)}　総合 ${p.overall}${p.trainerOverall !== null ? `（トレーナー ${p.trainerOverall}）` : ""}</title>
+     </circle>`).join("");
+  const label = (i, anchor) =>
+    `<text x="${x(i).toFixed(1)}" y="${(y(points[i].overall) - 11).toFixed(1)}" text-anchor="${anchor}" style="font-weight:700;fill:var(--ink)">${points[i].overall}</text>`;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="総合スコアの推移。${points.length}回ぶん、${points[0].overall}点から${points[points.length - 1].overall}点へ">
+    ${grid}<path class="ln" d="${d}"></path>${marks}${label(0, "start")}${label(points.length - 1, "end")}
+  </svg>
+  <p class="muted">左が古い回。点にカーソルを合わせると日付と場面（縦軸 1〜${S.config.rubric.scale}点）</p>`;
+}
+
+$("teacher-picker").onchange = () => loadProgress($("teacher-picker").value);
+$("nextup-btn").onclick = () => {
+  const sceneId = $("nextup-btn").dataset.scene;
+  if (sceneId) {
+    $("scene-select").value = sceneId;
+    renderSceneDesc();
+    if (S.progress?.teacher && !$("teacher-name").value) $("teacher-name").value = S.progress.teacher;
+  }
+  goTab("practice");
+};

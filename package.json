@@ -7,12 +7,17 @@
   "scripts": {
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
-    "check": "node scripts/selfcheck.mjs"
+    "check": "node scripts/selfcheck.mjs",
+    "lint": "eslint server scripts public",
+    "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.73.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.0"
   }
 }

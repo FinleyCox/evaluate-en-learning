@@ -1,5 +1,5 @@
-import { persona, sceneById } from "./config.mjs";
-import { askText, STUDENT_MODEL_ID } from "./claude.mjs";
+import { persona, sceneById, STUDENT_MODEL_ID } from "./config.mjs";
+import { askText } from "./claude.mjs";
 
 function systemPrompt(scene) {
   const p = persona.profile;

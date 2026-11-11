@@ -17,19 +17,33 @@ export function createSession(data) {
 
 export function save(session) {
   session.updatedAt = Date.now();
-  fs.writeFileSync(file(session.id), JSON.stringify(session, null, 2));
+  // 一時ファイルに書いてから置き換える。書き込み中に落ちても壊れたJSONを残さない
+  const tmp = `${file(session.id)}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(session, null, 2));
+  fs.renameSync(tmp, file(session.id));
   return session;
 }
 
 export function load(id) {
   if (!/^[\w-]+$/.test(id) || !fs.existsSync(file(id))) return null;
-  return JSON.parse(fs.readFileSync(file(id), "utf8"));
+  try {
+    return JSON.parse(fs.readFileSync(file(id), "utf8"));
+  } catch (err) {
+    console.error(`[store] 読めないセッションを飛ばしました: ${id}`, err.message);
+    return null;
+  }
 }
 
 export function listSessions() {
-  return fs
-    .readdirSync(DIR)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), "utf8")))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  const out = [];
+  for (const f of fs.readdirSync(DIR)) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      out.push(JSON.parse(fs.readFileSync(path.join(DIR, f), "utf8")));
+    } catch (err) {
+      // 壊れたファイルが1つあっても、残りのセッションは読めるようにする
+      console.error(`[store] 読めないセッションを飛ばしました: ${f}`, err.message);
+    }
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
 }

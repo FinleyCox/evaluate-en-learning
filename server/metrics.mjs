@@ -3,6 +3,12 @@ const ACKS = ["okay", "ok", "i see", "nice", "good", "great", "wow", "right", "s
 const RECALL_KEYWORDS = ["osaka", "concert", "live", "singer", "idol", "ticket", "next month"];
 
 const words = (s) => (s || "").trim().split(/\s+/).filter(Boolean).length;
+
+/** 会話の所要時間（秒）。評価前でも出せるよう発話の時刻だけから求める。 */
+export function conversationSeconds(turns) {
+  const at = (turns || []).map((t) => t.at).filter(Boolean);
+  return at.length > 1 ? round((Math.max(...at) - Math.min(...at)) / 1000, 1) : 0;
+}
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
 /**
@@ -27,8 +33,9 @@ export function computeMetrics(turns) {
   );
   const interruptions = windows.filter((t) => typeof t.interruptedAtMs === "number").length;
 
+  // MOCK の応答は即時（0ms）なので、判定基準「応答時間 平均2秒以内」の母数に入れない
   const latencies = student
-    .filter((t) => typeof t.apiLatencyMs === "number")
+    .filter((t) => typeof t.apiLatencyMs === "number" && !t.mock)
     .map((t) => t.apiLatencyMs / 1000);
 
   const ackCount = teacher.filter((t) => {
@@ -38,8 +45,6 @@ export function computeMetrics(turns) {
 
   const teacherAll = teacher.map((t) => t.text.toLowerCase()).join(" ");
   const recallHits = RECALL_KEYWORDS.filter((k) => teacherAll.includes(k));
-
-  const at = turns.map((t) => t.at).filter(Boolean);
 
   return {
     turns: { teacher: teacher.length, student: student.length },
@@ -66,7 +71,7 @@ export function computeMetrics(turns) {
       maxSeconds: latencies.length ? round(Math.max(...latencies), 2) : null,
     },
     recall: { keywordsMentionedByTeacher: recallHits },
-    durationSeconds: at.length > 1 ? round((Math.max(...at) - Math.min(...at)) / 1000, 1) : 0,
+    durationSeconds: conversationSeconds(turns),
   };
 }
 

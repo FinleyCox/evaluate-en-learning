@@ -10,41 +10,35 @@
 <header class="topbar">
   <div class="brand">
     <span class="logo">AI</span>
-    <div>
+    <div class="brand-txt">
       <h1>生徒ケアAIトレーナー <span class="tag">PoC</span></h1>
       <p class="sub">Step1 生徒役AIとの練習 → Step2 評価AIの採点 → トレーナー採点との一致度検証</p>
     </div>
   </div>
-  <div class="modebox"><span id="mode-pill" class="pill">…</span></div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="progress">上達</button>
+    <button class="tab" data-tab="practice">1. 練習</button>
+    <button class="tab" data-tab="review">2. 評価・採点</button>
+    <button class="tab" data-tab="report">3. 判定レポート</button>
+    <button class="tab" data-tab="spec">評価軸・ペルソナ</button>
+  </nav>
+  <span id="mode-pill" class="pill">…</span>
 </header>
 
-<nav class="tabs">
-  <button class="tab active" data-tab="progress">上達</button>
-  <button class="tab" data-tab="practice">1. 練習</button>
-  <button class="tab" data-tab="review">2. 評価・採点</button>
-  <button class="tab" data-tab="report">3. 判定レポート</button>
-  <button class="tab" data-tab="spec">評価軸・ペルソナ</button>
-</nav>
-
 <main>
-  <!-- 上達（ホーム） -->
+  <!-- 上達（サマリ + 4つの見方） -->
   <section id="progress" class="panel active">
-    <div class="card">
-      <div class="row between">
-        <div>
-          <p class="hello" id="hello">こんにちは</p>
-          <p class="muted" id="progress-meta"></p>
-        </div>
-        <label>講師
+    <div class="card strip">
+      <div class="strip-who">
+        <p class="hello" id="hello">こんにちは</p>
+        <p class="muted" id="progress-meta"></p>
+        <label class="inline">講師
           <select id="teacher-picker"></select>
         </label>
       </div>
       <div class="tiles" id="progress-tiles"></div>
-    </div>
-
-    <div class="card" id="nextup-card">
-      <div class="nextup">
-        <div>
+      <div class="nextup" id="nextup-card">
+        <div class="nextup-txt">
           <div class="t">次に取り組むこと</div>
           <div class="l" id="nextup-label">—</div>
           <div class="r" id="nextup-reason"></div>
@@ -53,172 +47,216 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2>週の練習</h2>
-      <p class="muted">過去5週間。丸が濃いほどその日の練習回数が多い</p>
-      <div id="weekgrid"></div>
-      <div class="legend">
-        <span><i></i>練習なし</span>
-        <span><i class="l1"></i>1回</span>
-        <span><i class="l2"></i>2回</span>
-        <span><i class="l3"></i>3回以上</span>
-        <span><i class="today"></i>今日</span>
-      </div>
-      <details class="tableview"><summary>表で見る</summary><div id="weektable"></div></details>
-    </div>
+    <div class="cols cols-progress">
+      <section class="card pane">
+        <header class="pane-head">
+          <h2>週の練習</h2>
+          <p class="muted">過去5週間。丸が濃いほど練習回数が多い</p>
+        </header>
+        <div class="pane-body">
+          <div id="weekgrid"></div>
+          <div class="legend">
+            <span><i></i>練習なし</span>
+            <span><i class="l1"></i>1回</span>
+            <span><i class="l2"></i>2回</span>
+            <span><i class="l3"></i>3回以上</span>
+            <span><i class="today"></i>今日</span>
+          </div>
+          <details class="tableview"><summary>表で見る</summary><div id="weektable"></div></details>
+        </div>
+      </section>
 
-    <div class="card">
-      <h2>評価軸の上達</h2>
-      <p class="muted">評価AIの採点の平均（5点満点）。伸びは、練習回数の前半と後半の平均差</p>
-      <div class="bars" id="axisbars"></div>
-      <details class="tableview"><summary>表で見る</summary><div id="axistable"></div></details>
-    </div>
+      <section class="card pane">
+        <header class="pane-head">
+          <h2>評価軸の上達</h2>
+          <p class="muted">評価AIの採点の平均。伸びは前半と後半の差</p>
+        </header>
+        <div class="pane-body">
+          <div class="bars" id="axisbars"></div>
+          <details class="tableview"><summary>表で見る</summary><div id="axistable"></div></details>
+        </div>
+      </section>
 
-    <div class="card">
-      <h2>総合スコアの推移</h2>
-      <p class="muted">1回の練習で採点対象になった軸の平均。古い回から順に並ぶ</p>
-      <div id="trend"></div>
-    </div>
+      <section class="card pane">
+        <header class="pane-head">
+          <h2>総合スコアの推移</h2>
+          <p class="muted">1回の練習で採点対象になった軸の平均</p>
+        </header>
+        <div class="pane-body"><div id="trend"></div></div>
+      </section>
 
-    <div class="card">
-      <h2>場面の制覇</h2>
-      <p class="muted">6つの場面それぞれの練習回数と平均スコア</p>
-      <div class="scenegrid" id="scenegrid"></div>
+      <section class="card pane wide">
+        <header class="pane-head">
+          <h2>場面の制覇</h2>
+          <p class="muted">場面ごとの練習回数と平均スコア</p>
+        </header>
+        <div class="pane-body"><div class="scenegrid" id="scenegrid"></div></div>
+      </section>
     </div>
   </section>
 
   <!-- 1. 練習 -->
   <section id="practice" class="panel">
-    <div class="setup card" id="setup">
-      <h2>練習を始める</h2>
-      <div class="row">
+    <div class="card bar" id="setup">
+      <div class="bar-line">
         <label>講師名
           <input id="teacher-name" type="text" placeholder="例: Tristan" />
         </label>
-        <label>練習する場面
+        <label class="grow">練習する場面
           <select id="scene-select"></select>
         </label>
-      </div>
-      <p class="scene-desc" id="scene-desc"></p>
-      <div class="row between">
         <label class="check"><input type="checkbox" id="tts-toggle" /> 生徒の発話を音声で読み上げる</label>
         <button id="start-btn" class="primary">練習を開始</button>
       </div>
+      <p class="scene-desc" id="scene-desc"></p>
     </div>
 
-    <div class="chatwrap card hidden" id="chatwrap">
-      <div class="chathead">
-        <div>
+    <section class="card pane hidden" id="chatwrap">
+      <header class="pane-head row between">
+        <div class="minw">
           <strong id="chat-scene"></strong>
           <span class="muted" id="chat-persona"></span>
         </div>
         <button id="finish-btn" class="ghost">練習を終了して評価へ</button>
-      </div>
-      <div id="chat" class="chat"></div>
+      </header>
+      <div id="chat" class="chat pane-body"></div>
       <div class="composer">
         <textarea id="input" rows="2" placeholder="講師として英語で話しかける（Enterで送信 / Shift+Enterで改行）"></textarea>
         <button id="mic-btn" class="ghost icon" title="音声入力">🎤</button>
         <button id="send-btn" class="primary">送信</button>
       </div>
       <p class="hint">生徒役は答えるまで5〜8秒黙ります。待てたかどうかが評価軸「考える時間の確保」に入ります。</p>
-    </div>
+    </section>
   </section>
 
   <!-- 2. 評価・採点 -->
   <section id="review" class="panel">
-    <div class="card">
-      <p class="muted" id="review-hint">練習を終えると、ここに自動計測と評価AIの採点が表示されます。</p>
-      <div class="row">
-        <label>セッション
+    <div class="card bar">
+      <div class="bar-line">
+        <label class="grow">セッション
           <select id="session-picker"></select>
         </label>
         <button id="load-session" class="ghost">開く</button>
+        <p class="muted" id="review-hint">練習を終えると、ここに自動計測と評価AIの採点が表示されます。</p>
       </div>
     </div>
 
-    <div id="review-body" class="hidden">
-      <div class="card">
-        <div class="row between">
+    <div id="review-body" class="cols cols-half hidden">
+      <section class="card pane">
+        <header class="pane-head row between">
           <h2>会話ログ</h2>
           <span class="muted" id="transcript-meta"></span>
-        </div>
-        <div id="transcript" class="chat"></div>
-      </div>
+        </header>
+        <div id="transcript" class="chat pane-body"></div>
+      </section>
 
-      <div class="card">
-        <div class="row between">
-          <h2>自動計測</h2>
-          <div class="row">
+      <section class="card pane">
+        <header class="pane-head subtabs">
+          <div class="subtab-row">
+            <button class="subtab active" data-sub="sub-metrics">自動計測</button>
+            <button class="subtab" data-sub="sub-eval" data-needs-eval disabled>評価AIの採点</button>
+            <button class="subtab" data-sub="sub-summary" data-needs-eval disabled>講評</button>
+            <button class="subtab" data-sub="sub-trainer" data-needs-eval disabled>トレーナー採点</button>
+          </div>
+          <div class="btns">
             <button id="eval-btn" class="primary">評価AIで採点する</button>
             <button id="stability-btn" class="ghost">3回採点して安定性を見る</button>
           </div>
-        </div>
-        <div id="metrics" class="metrics"></div>
-      </div>
+        </header>
 
-      <div class="card hidden" id="eval-card">
-        <div class="row between">
-          <h2>評価AIの採点</h2>
-          <label class="check"><input type="checkbox" id="blind-toggle" checked /> トレーナー採点が終わるまでAIのスコアを隠す</label>
-        </div>
-        <div id="axes"></div>
-        <div id="summary" class="summary"></div>
-        <div id="stability" class="stability"></div>
-      </div>
+        <div class="pane-body">
+          <div id="sub-metrics" class="subpanel active">
+            <div id="metrics" class="metrics"></div>
+          </div>
 
-      <div class="card hidden" id="trainer-card">
-        <h2>トレーナー採点（評価AIとの一致度を測る）</h2>
-        <p class="muted">同じ会話ログを、トレーナーが独立に採点します。AIのスコアと突き合わせて重み付きκを計算します。</p>
-        <div id="trainer-axes"></div>
-        <div class="row wrap">
-          <label class="check"><input type="checkbox" id="t-persona" checked /> 生徒役は合意したペルソナらしく話していた</label>
-          <label class="check"><input type="checkbox" id="t-scene" checked /> 練習したい場面が会話の中で起きた</label>
+          <div id="sub-eval" class="subpanel">
+            <label class="check blindrow"><input type="checkbox" id="blind-toggle" checked /> トレーナー採点が終わるまでAIのスコアを隠す</label>
+            <div id="axes"></div>
+          </div>
+
+          <div id="sub-summary" class="subpanel">
+            <div id="summary" class="summary"></div>
+            <div id="stability" class="stability"></div>
+          </div>
+
+          <div id="sub-trainer" class="subpanel">
+            <p class="muted">左の会話ログを読んで、トレーナーが独立に採点します。AIのスコアと突き合わせて重み付きκを計算します。</p>
+            <div id="trainer-axes"></div>
+            <div class="checks">
+              <label class="check"><input type="checkbox" id="t-persona" checked /> 生徒役は合意したペルソナらしく話していた</label>
+              <label class="check"><input type="checkbox" id="t-scene" checked /> 練習したい場面が会話の中で起きた</label>
+            </div>
+            <div class="bar-line">
+              <label class="grow">練習への有用性（講師が練習相手として使えるか）
+                <select id="t-useful"></select>
+              </label>
+              <label class="grow">フィードバックの納得度（指導にそのまま使えるか）
+                <select id="t-trust"></select>
+              </label>
+            </div>
+            <label class="full">所見（任意）
+              <textarea id="t-comment" rows="3" placeholder="AIの採点とずれた理由、評価軸に足したい観点など"></textarea>
+            </label>
+            <button id="trainer-submit" class="primary">トレーナー採点を登録</button>
+          </div>
         </div>
-        <div class="row">
-          <label>練習への有用性（講師が練習相手として使えるか）
-            <select id="t-useful"></select>
-          </label>
-          <label>フィードバックの納得度（指導にそのまま使えるか）
-            <select id="t-trust"></select>
-          </label>
-        </div>
-        <label class="full">所見（任意）
-          <textarea id="t-comment" rows="3" placeholder="AIの採点とずれた理由、評価軸に足したい観点など"></textarea>
-        </label>
-        <button id="trainer-submit" class="primary">トレーナー採点を登録</button>
-      </div>
+      </section>
     </div>
   </section>
 
   <!-- 3. 判定レポート -->
   <section id="report" class="panel">
-    <div class="card">
-      <div class="row between">
-        <h2>PoC判定基準との突き合わせ</h2>
+    <div class="card bar">
+      <div class="bar-line">
+        <h2 class="grow">PoC判定基準との突き合わせ</h2>
+        <p class="muted" id="report-meta"></p>
         <button id="refresh-report" class="ghost">再集計</button>
       </div>
-      <p class="muted" id="report-meta"></p>
-      <h3>生徒役AI</h3>
-      <div id="criteria-student" class="criteria"></div>
-      <h3>評価AI</h3>
-      <div id="criteria-evaluator" class="criteria"></div>
     </div>
-    <div class="card">
-      <h2>採点の一致（重み付きκ）</h2>
-      <div id="kappa-overall"></div>
-      <div id="kappa-axes" class="criteria"></div>
-    </div>
-    <div class="card">
-      <h2>セッション一覧</h2>
-      <div id="session-list"></div>
+
+    <div class="cols cols-half">
+      <section class="card pane">
+        <header class="pane-head"><h2>判定基準ごとの達成状況</h2></header>
+        <div class="pane-body">
+          <h3>生徒役AI</h3>
+          <div id="criteria-student" class="criteria"></div>
+          <h3>評価AI</h3>
+          <div id="criteria-evaluator" class="criteria"></div>
+        </div>
+      </section>
+
+      <div class="stack">
+        <section class="card pane">
+          <header class="pane-head"><h2>採点の一致（重み付きκ）</h2></header>
+          <div class="pane-body">
+            <div id="kappa-overall"></div>
+            <div id="kappa-axes" class="criteria"></div>
+          </div>
+        </section>
+        <section class="card pane">
+          <header class="pane-head"><h2>セッション一覧</h2></header>
+          <div class="pane-body"><div id="session-list"></div></div>
+        </section>
+      </div>
     </div>
   </section>
 
   <!-- 評価軸・ペルソナ -->
   <section id="spec" class="panel">
-    <div class="card"><h2>評価軸（案）</h2><div id="spec-rubric"></div></div>
-    <div class="card"><h2>ペルソナ（案）</h2><div id="spec-persona"></div></div>
-    <div class="card"><h2>練習する場面</h2><div id="spec-scenes"></div></div>
+    <div class="cols cols-third">
+      <section class="card pane">
+        <header class="pane-head"><h2>評価軸（案）</h2></header>
+        <div class="pane-body" id="spec-rubric"></div>
+      </section>
+      <section class="card pane">
+        <header class="pane-head"><h2>ペルソナ（案）</h2></header>
+        <div class="pane-body" id="spec-persona"></div>
+      </section>
+      <section class="card pane">
+        <header class="pane-head"><h2>練習する場面</h2></header>
+        <div class="pane-body" id="spec-scenes"></div>
+      </section>
+    </div>
   </section>
 </main>
 

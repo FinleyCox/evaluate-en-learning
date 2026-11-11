@@ -77,7 +77,7 @@ $("start-btn").onclick = async () => {
   $("setup").classList.add("hidden");
   $("chatwrap").classList.remove("hidden");
   $("chat-scene").textContent = scene.name;
-  $("chat-persona").textContent = `　生徒役: ${S.config.persona.name}（${S.config.persona.profile.englishLevel.value}）`;
+  $("chat-persona").textContent = `生徒役: ${S.config.persona.name}（${S.config.persona.profile.englishLevel.value}）`;
   $("chat").innerHTML = "";
   for (const t of session.turns) addBubble(t.role, t.text);
   $("input").focus();
@@ -197,6 +197,19 @@ $("finish-btn").onclick = async () => {
 };
 
 /* ---------- 2. 評価・採点 ---------- */
+// 右側は「自動計測／採点／講評／トレーナー採点」を切り替えて1画面に収める
+function showSub(id) {
+  document.querySelectorAll(".subtab").forEach((b) => b.classList.toggle("active", b.dataset.sub === id));
+  document.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("active", p.id === id));
+}
+function enableEvalSubs(on) {
+  document.querySelectorAll(".subtab[data-needs-eval]").forEach((b) => { b.disabled = !on; });
+  if (!on) showSub("sub-metrics");
+}
+document.querySelectorAll(".subtab").forEach((b) => {
+  b.onclick = () => showSub(b.dataset.sub);
+});
+
 async function refreshSessions() {
   const list = await api("/api/sessions");
   const sel = $("session-picker");
@@ -222,10 +235,7 @@ async function openSession(id) {
   renderTranscript(s);
   renderMetrics(s.metrics);
   if (s.evaluation) renderEvaluation(s.evaluation, s.stability);
-  else {
-    $("eval-card").classList.add("hidden");
-    $("trainer-card").classList.add("hidden");
-  }
+  else enableEvalSubs(false);
   await refreshSessions();
 }
 
@@ -300,8 +310,8 @@ const steps = () => Array.from({ length: S.config.rubric.scale }, (_, i) => i + 
 const dots = (n) => `<span class="dots5">${steps().map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
 
 function renderEvaluation(ev, stability) {
-  $("eval-card").classList.remove("hidden");
-  $("trainer-card").classList.remove("hidden");
+  enableEvalSubs(true);
+  showSub("sub-eval");
 
   const axesBox = $("axes");
   axesBox.innerHTML = "";
@@ -433,8 +443,8 @@ async function loadReport() {
   const a = r.agreement;
   $("kappa-overall").innerHTML = `
     <div class="row between">
-      <div><span class="kappa-big">${a.kappa === null ? "—" : a.kappa}</span>
-        <span class="muted">　重み付きκ（二次重み）／ ${esc(a.label)}　基準 0.61以上</span></div>
+      <div class="minw"><span class="kappa-big">${a.kappa === null ? "—" : a.kappa}</span>
+        <span class="muted kappa-sub">重み付きκ（二次重み）／ ${esc(a.label)}　基準 0.61以上</span></div>
       <div class="muted">完全一致 ${a.exact === null ? "—" : (a.exact * 100).toFixed(0) + "%"}　／　
         ±1以内 ${a.within1 === null ? "—" : (a.within1 * 100).toFixed(0) + "%"}　／　
         平均絶対差 ${a.meanAbsDiff ?? "—"}　／　
@@ -472,7 +482,7 @@ function renderSpec() {
   $("spec-rubric").innerHTML = S.config.rubric.axes
     .map((a) => `<div class="spec-item"><b>${esc(a.name)}</b>　<span class="muted">${esc(a.behavior)}</span>
       <div class="muted">採点の手がかり: ${esc(a.cue)}</div>
-      <div>${[1, 2, 3, 4, 5].map((i) => `${i}: ${esc(a.descriptors[i])}`).join("<br>")}</div></div>`)
+      <div class="spec-steps">${steps().map((i) => `${i}: ${esc(a.descriptors[i])}`).join("<br>")}</div></div>`)
     .join("") + `<p class="muted">出典: ${esc(S.config.rubric.source)}</p>`;
 
   const p = S.config.persona.profile;
@@ -571,8 +581,8 @@ function renderProgress(p) {
     const dTxt = d === null ? "" : `<span class="delta ${dCls}">${d > 0.05 ? "▲+" : d < -0.05 ? "▼" : "±"}${Math.abs(d).toFixed(1)}</span>`;
     return `<div class="bar-row ${has ? "" : "none"}">
       <div class="bar-top">
-        <div><span class="bar-name">${esc(a.name)}</span>
-          <span class="bar-sub">　${esc(a.behavior)}　/　${a.attempts}回</span></div>
+        <div class="bar-label"><span class="bar-name">${esc(a.name)}</span>
+          <span class="bar-sub">${esc(a.behavior)} / ${a.attempts}回</span></div>
         <div class="bar-val">${has ? a.avg.toFixed(1) : "—"}${has ? dTxt : ""}</div>
       </div>
       <div class="bar-track"><div class="bar-fill" style="width:${w}%"></div></div>
@@ -605,11 +615,13 @@ function renderProgress(p) {
 /** 総合スコアの推移。1系列なので凡例は置かず、最初と最後だけ値を直接書く。 */
 function sparkline(points) {
   if (points.length < 2) return `<p class="muted">推移を描くには練習が2回以上必要です。</p>`;
-  const W = 640, H = 72, PX = 26, PY = 12;
+  // 縦横比はペインの幅に合わせて決め打つ（比を保って拡大するので文字は潰れない）
+  const W = 340, H = 104, PX = 22, PY = 16;
   const x = (i) => PX + (i / (points.length - 1)) * (W - PX * 2);
-  const y = (v) => PY + (1 - (v - 1) / 4) * (H - PY * 2); // 1〜5点
+  const y = (v) => PY + (1 - (v - 1) / (S.config.rubric.scale - 1)) * (H - PY * 2);
   const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.overall).toFixed(1)}`).join(" ");
-  const grid = [1, 3, 5].map((v) =>
+  const mid = Math.ceil(S.config.rubric.scale / 2);
+  const grid = [1, mid, S.config.rubric.scale].map((v) =>
     `<line class="gl" x1="${PX}" y1="${y(v)}" x2="${W - PX}" y2="${y(v)}"></line>
      <text x="0" y="${y(v) + 3}">${v}</text>`).join("");
   const marks = points.map((p, i) =>
@@ -617,12 +629,12 @@ function sparkline(points) {
       <title>${esc(fmtDate(p.at))}　${esc(p.sceneName)}　総合 ${p.overall}${p.trainerOverall !== null ? `（トレーナー ${p.trainerOverall}）` : ""}</title>
      </circle>`).join("");
   const label = (i, anchor) =>
-    `<text x="${x(i).toFixed(1)}" y="${(y(points[i].overall) - 10).toFixed(1)}" text-anchor="${anchor}" style="font-weight:700;fill:var(--ink)">${points[i].overall}</text>`;
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+    `<text x="${x(i).toFixed(1)}" y="${(y(points[i].overall) - 11).toFixed(1)}" text-anchor="${anchor}" style="font-weight:700;fill:var(--ink)">${points[i].overall}</text>`;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img"
     aria-label="総合スコアの推移。${points.length}回ぶん、${points[0].overall}点から${points[points.length - 1].overall}点へ">
     ${grid}<path class="ln" d="${d}"></path>${marks}${label(0, "start")}${label(points.length - 1, "end")}
   </svg>
-  <p class="muted">左が古い回。点にカーソルを合わせると日付と場面が出ます（縦軸 1〜5点）</p>`;
+  <p class="muted">左が古い回。点にカーソルを合わせると日付と場面（縦軸 1〜${S.config.rubric.scale}点）</p>`;
 }
 
 $("teacher-picker").onchange = () => loadProgress($("teacher-picker").value);

@@ -13,7 +13,8 @@ export default [
     },
   },
   {
-    files: ["public/**/*.js"],
+    // ブラウザで動くもの（画面本体と、検証用に画面へ差し込むスクリプト）
+    files: ["public/**/*.js", "scripts/*.browser.js"],
     languageOptions: {
       ecmaVersion: 2024, sourceType: "script",
       globals: {
@@ -21,6 +22,9 @@ export default [
         alert: "readonly", Option: "readonly", setTimeout: "readonly", clearTimeout: "readonly",
         setInterval: "readonly", clearInterval: "readonly", speechSynthesis: "readonly",
         SpeechSynthesisUtterance: "readonly", encodeURIComponent: "readonly",
+        Event: "readonly", KeyboardEvent: "readonly",
+        // 検証スクリプトは app.js の状態をそのまま読む
+        S: "readonly", V: "readonly",
       },
     },
     rules: {

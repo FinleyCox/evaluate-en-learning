@@ -1,4 +1,4 @@
-const WORDS_PER_SECOND = 2.5; // 英語の発話をテキストから秒数換算する係数（150 wpm 相当）
+const WORDS_PER_SECOND = 2.5; // 文字数から秒数を見積もる係数（150 wpm 相当）。音声で話した回は実測値を使うのでこれは使わない
 const ACKS = ["okay", "ok", "i see", "nice", "good", "great", "wow", "right", "sure", "cool", "uh huh", "mm hmm"];
 const RECALL_KEYWORDS = ["osaka", "concert", "live", "singer", "idol", "ticket", "next month"];
 
@@ -24,7 +24,11 @@ export function computeMetrics(turns) {
   const sWords = student.reduce((a, t) => a + words(t.text), 0);
   const total = tWords + sWords;
 
-  const turnSeconds = teacher.map((t) => words(t.text) / WORDS_PER_SECOND);
+  // 講師の1回の発話の長さ。音声で話した回は実測（話し始め〜声の切れ目）、
+  // 打った回は文字数からの見積もり。どちらを使ったかは secondsSource で見分ける。
+  const spokenSeconds = (t) => (typeof t.speechMs === "number" && t.speechMs > 0 ? t.speechMs / 1000 : null);
+  const turnSeconds = teacher.map((t) => spokenSeconds(t) ?? words(t.text) / WORDS_PER_SECOND);
+  const measuredTurns = teacher.filter((t) => spokenSeconds(t) !== null).length;
 
   // 沈黙を待てたか：生徒役の「考え中」ウィンドウごとに、講師が割り込んだ時点を見る
   const windows = student.filter((t) => typeof t.thinkingMs === "number");
@@ -56,8 +60,11 @@ export function computeMetrics(turns) {
     teacherTurn: {
       maxSeconds: turnSeconds.length ? round(Math.max(...turnSeconds), 1) : 0,
       avgSeconds: turnSeconds.length ? round(turnSeconds.reduce((a, b) => a + b, 0) / turnSeconds.length, 1) : 0,
+      totalSeconds: round(turnSeconds.reduce((a, b) => a + b, 0), 1),
       questionCount: teacher.filter((t) => t.text.includes("?")).length,
       shortAckCount: ackCount,
+      measuredTurns,
+      secondsSource: !measuredTurns ? "estimated" : measuredTurns === teacher.length ? "measured" : "mixed",
     },
     wait: {
       windows: windows.length,
@@ -75,11 +82,20 @@ export function computeMetrics(turns) {
   };
 }
 
+// 古いセッションの metrics には secondsSource が無いので、読めないときは推定として扱う
+const SECONDS_SOURCE_FALLBACK = "文字数からの推定";
+/** 講師の発話秒数が実測か見積もりかを、評価AIへの要約に書き添える。 */
+const SECONDS_SOURCE_LABEL = {
+  measured: "音声の実測",
+  mixed: "一部が音声の実測、残りは文字数からの推定",
+  estimated: "文字数からの推定",
+};
+
 /** 評価AIのプロンプトに差し込む、自動計測の要約行。 */
 export function metricsSummary(m) {
   return [
     `講師の発話量の比率: ${(m.words.teacherRatio * 100).toFixed(0)}%（講師${m.words.teacher}語 / 生徒${m.words.student}語）`,
-    `講師の1回の連続発話: 最長${m.teacherTurn.maxSeconds}秒 / 平均${m.teacherTurn.avgSeconds}秒（1語0.4秒換算）`,
+    `講師の1回の連続発話: 最長${m.teacherTurn.maxSeconds}秒 / 平均${m.teacherTurn.avgSeconds}秒 / 合計${m.teacherTurn.totalSeconds}秒（${SECONDS_SOURCE_LABEL[m.teacherTurn.secondsSource] || SECONDS_SOURCE_FALLBACK}）`,
     `講師の質問数: ${m.teacherTurn.questionCount}回、単語だけの相づち: ${m.teacherTurn.shortAckCount}回`,
     `生徒の沈黙(考え中)ウィンドウ: ${m.wait.windows}回、講師の割り込み: ${m.wait.interruptions}回、` +
       `講師が沈黙を破るまで 最短${m.wait.minSeconds ?? "-"}秒 / 平均${m.wait.avgSeconds ?? "-"}秒`,

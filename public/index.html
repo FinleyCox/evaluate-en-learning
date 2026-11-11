@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+<div class="topbar-wrap">
 <header class="topbar">
   <div class="brand">
     <span class="logo">AI</span>
@@ -24,6 +25,7 @@
   </nav>
   <span id="mode-pill" class="pill">…</span>
 </header>
+</div>
 
 <main>
   <!-- 上達（サマリ + 4つの見方） -->
@@ -105,9 +107,16 @@
         <label class="grow">練習する場面
           <select id="scene-select"></select>
         </label>
-        <label class="check"><input type="checkbox" id="tts-toggle" /> 生徒の発話を音声で読み上げる</label>
+        <label class="grow">練習のしかた
+          <select id="mode-select">
+            <option value="text">テキストで打つ</option>
+            <option value="voice">声で話す（ハンズフリー）</option>
+          </select>
+        </label>
+        <label class="check" id="tts-label"><input type="checkbox" id="tts-toggle" /> 生徒の発話を読み上げる</label>
         <button id="start-btn" class="primary">練習を開始</button>
       </div>
+      <p class="muted" id="mode-note"></p>
       <p class="scene-desc" id="scene-desc"></p>
     </div>
 
@@ -120,12 +129,17 @@
         <button id="finish-btn" class="ghost">練習を終了して評価へ</button>
       </header>
       <div id="chat" class="chat pane-body"></div>
+      <div id="voicebar" class="voicebar hidden">
+        <span class="vstate"><i id="voice-dot"></i><b id="voice-state">—</b></span>
+        <span class="vheard" id="voice-heard"></span>
+        <button id="voice-toggle" class="ghost">マイクを止める</button>
+      </div>
       <div class="composer">
         <textarea id="input" rows="2" placeholder="講師として英語で話しかける（Enterで送信 / Shift+Enterで改行）"></textarea>
         <button id="mic-btn" class="ghost icon" title="音声入力">🎤</button>
         <button id="send-btn" class="primary">送信</button>
       </div>
-      <p class="hint">生徒役は答えるまで5〜8秒黙ります。待てたかどうかが評価軸「考える時間の確保」に入ります。</p>
+      <p class="hint" id="practice-hint">生徒役は答えるまで5〜8秒黙ります。待てたかどうかが評価軸「考える時間の確保」に入ります。</p>
     </section>
   </section>
 

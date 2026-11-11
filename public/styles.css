@@ -1,34 +1,41 @@
 /* ===== トークン =====
-   参考: Nixtio「Language Learning AI App」の配色（砂色の地、白いカード、
-   ラベンダーのタイル、黒いピルボタン、琥珀のハイライト）を web に寄せたもの。
-   データ色は dataviz の検証スクリプトで light/dark とも PASS を確認済み。 */
+   配色は英会話イーオンのコーポレートサイト（aeonet.co.jp）から取った実際の値。
+   ブランド青 #007cbf / ロゴ青 #009fe8 / ネイビー #064562 / CTAの赤 #c94d4a /
+   本文 #2d2d2d / 面 #f5f8fa・#ffffff、書体は Noto Sans JP。
+   データ色（練習量の3段）は dataviz の検証スクリプトに通し、light/dark とも
+   「単一色相・明度が単調・段差0.06以上・明るい端が面に対して2:1以上」で PASS 済み。 */
 :root {
   color-scheme: light;
-  --sand: #efe7dc;
+  --sand: #eef2f6;
   --surface: #ffffff;
-  --surface-2: #f7f3ed;
-  --lav-soft: #eceafb;
-  --accent-soft: #fbeccb;
-  --ink: #171412;
-  --ink-2: #5c564e;
-  --ink-3: #8a8278;
-  --line: #e5ded4;
-  --line-2: #d6cdc0;
+  --surface-2: #f5f8fa;
+  --lav-soft: #dff0fb;        /* 淡い青。講師の吹き出し・次に取り組むこと */
+  --accent-soft: #fdeceb;
+  --ink: #2d2d2d;
+  --ink-2: #5a6066;
+  --ink-3: #717880;
+  --line: #e3e8ec;
+  --line-2: #d9d9d9;
 
-  --viz-1: #aaa2e4;   /* 練習1回 */
-  --viz-2: #7d72db;   /* 練習2回 / 単一系列のバー */
-  --viz-3: #5349bd;   /* 練習3回以上 */
-  --accent: #b4780a;  /* 今日・連続日数 */
+  --viz-1: #66b6e3;   /* 練習1回 */
+  --viz-2: #007cbf;   /* 練習2回 / 単一系列のバー（ブランド青そのもの） */
+  --viz-3: #064562;   /* 練習3回以上（ブランドのネイビー） */
+  --accent: #c94d4a;  /* 今日・連続日数・割り込みの注記（イーオンのCTA赤） */
 
-  --good: #0ca30c;
-  --bad: #d03b3b;
+  --good: #0f7a35;
+  --bad: #c94d4a;
 
-  --cta: #171412;
+  --brand: #007cbf;       /* 選択中のタブ、ロゴ、リンク */
+  --brand-ink: #ffffff;
+  --brand-deep: #064562;
+  --hero-from: #007cbf;
+  --hero-to: #064562;
+  --cta: #c94d4a;         /* 主ボタン */
   --cta-ink: #ffffff;
 
-  --r-lg: 20px;
-  --r-md: 14px;
-  --r-sm: 9px;
+  --r-lg: 14px;
+  --r-md: 10px;
+  --r-sm: 6px;
 
   /* 余白は1本の段階で決める。隙間の詰まりはここを変えれば全体に効く */
   --gap: 12px;
@@ -39,27 +46,32 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --sand: #141210;
-    --surface: #23201d;
-    --surface-2: #2c2824;
-    --lav-soft: #2a2742;
-    --accent-soft: #3a2e16;
-    --ink: #f2ede6;
-    --ink-2: #bdb5a9;
-    --ink-3: #8d8478;
-    --line: #35312c;
-    --line-2: #46413a;
+    --sand: #14181b;
+    --surface: #21262a;
+    --surface-2: #2a3035;
+    --lav-soft: #15324a;
+    --accent-soft: #3a2220;
+    --ink: #eef2f5;
+    --ink-2: #b9c2c8;
+    --ink-3: #8b959c;
+    --line: #333a40;
+    --line-2: #454d54;
 
-    --viz-1: #746bd3;
-    --viz-2: #9c93e2;
-    --viz-3: #c4bef0;
-    --accent: #e3a83a;
+    --viz-1: #1d6f9c;
+    --viz-2: #4ba3d6;
+    --viz-3: #9ad2f0;
+    --accent: #ef8a80;
 
     --good: #4ade80;
-    --bad: #f87171;
+    --bad: #ef8a80;
 
-    --cta: #f2ede6;
-    --cta-ink: #171412;
+    --brand: #4ba3d6;
+    --brand-ink: #10161a;
+    --brand-deep: #9ad2f0;
+    --hero-from: #1a5d80;
+    --hero-to: #0d3550;
+    --cta: #d4584f;
+    --cta-ink: #ffffff;
   }
 }
 
@@ -67,7 +79,7 @@
 html { height: 100%; }
 body {
   margin: 0; background: var(--sand); color: var(--ink);
-  font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px; line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   /* 画面1枚に収める。はみ出す中身は各ペインの中だけでスクロールする */
@@ -75,21 +87,23 @@ body {
 }
 h1 { font-size: 16px; margin: 0; line-height: 1.4; }
 h2 { font-size: 15px; margin: 0; line-height: 1.5; }
+.pane-head > h2, .card > h2, .bar-line > h2 { padding-left: 10px; border-left: 3px solid var(--brand); }
 h3 { font-size: 11px; margin: var(--gap-lg) 0 var(--gap-sm); color: var(--ink-3); font-weight: 700; letter-spacing: .04em; line-height: 1.6; }
 h3:first-child { margin-top: 0; }
 p { margin: 0; }
-a { color: inherit; }
+a { color: var(--brand); }
 
 /* ===== 上部 ===== */
+.topbar-wrap { background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--gap-lg);
-  padding: 10px 18px; max-width: 1320px; width: 100%; margin: 0 auto; flex: none; flex-wrap: wrap;
+  padding: 9px 18px; max-width: 1320px; width: 100%; margin: 0 auto; flex-wrap: wrap;
 }
 .brand { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .brand-txt { min-width: 0; }
-.logo { width: 34px; height: 34px; border-radius: 11px; background: var(--cta); color: var(--cta-ink); display: grid; place-items: center; font-weight: 800; font-size: 13px; flex: none; }
+.logo { width: 34px; height: 34px; border-radius: 8px; background: var(--brand); color: var(--brand-ink); display: grid; place-items: center; font-weight: 800; font-size: 13px; flex: none; letter-spacing: .02em; }
 .sub { margin-top: 1px; color: var(--ink-3); font-size: 11px; line-height: 1.5; }
-.tag { font-size: 10.5px; background: var(--lav-soft); color: var(--viz-3); padding: 2px 8px; border-radius: 999px; vertical-align: 1px; font-weight: 700; }
+.tag { font-size: 10.5px; background: var(--lav-soft); color: var(--brand-deep); padding: 2px 8px; border-radius: 999px; vertical-align: 1px; font-weight: 700; }
 .pill { font-size: 11.5px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); white-space: nowrap; background: var(--surface); flex: none; }
 .pill.live { color: var(--good); border-color: var(--good); }
 .pill.mock { color: var(--accent); border-color: var(--accent); }
@@ -97,7 +111,7 @@ a { color: inherit; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .tab { background: none; border: 1px solid transparent; padding: 7px 14px; font: inherit; font-size: 13px; line-height: 1.4; color: var(--ink-3); cursor: pointer; border-radius: 999px; }
 .tab:hover { color: var(--ink); }
-.tab.active { color: var(--cta-ink); background: var(--cta); font-weight: 700; }
+.tab.active { color: var(--brand-ink); background: var(--brand); font-weight: 700; }
 
 /* ===== 画面の骨格 ===== */
 main { flex: 1 1 auto; min-height: 0; overflow: hidden; width: 100%; max-width: 1320px; margin: 0 auto; padding: 0 18px 14px; }
@@ -173,7 +187,10 @@ button:disabled { opacity: .45; cursor: default; }
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; min-width: 0; }
 .tiles:has(.empty) { display: block; }
 .tile { background: var(--surface-2); border-radius: var(--r-md); padding: 11px 13px; min-width: 0; }
-.tile.hero { background: var(--lav-soft); }
+.tile.hero { background: linear-gradient(135deg, var(--hero-from), var(--hero-to)); }
+.tile.hero .k, .tile.hero .s { color: rgba(255, 255, 255, .82); }
+.tile.hero .v { color: #ffffff; }
+.tile.hero .v small { color: rgba(255, 255, 255, .72); }
 .tile .k { font-size: 11px; line-height: 1.5; color: var(--ink-2); display: block; }
 .tile .v { font-size: 24px; font-weight: 800; letter-spacing: -.02em; line-height: 1.4; font-variant-numeric: tabular-nums; display: block; margin: 1px 0 2px; }
 .tile .v small { font-size: 12px; font-weight: 600; color: var(--ink-3); letter-spacing: 0; }
@@ -261,6 +278,20 @@ details.tableview[open] { padding-bottom: 4px; }
 .composer { display: flex; gap: var(--gap-sm); align-items: flex-end; margin-top: var(--gap); flex: none; }
 .composer textarea { flex: 1 1 auto; }
 .hint { font-size: 11px; line-height: 1.6; color: var(--ink-3); margin-top: var(--gap-sm); flex: none; }
+
+/* 音声モードの状態帯。いま聞いているのか、生徒が話しているのかを一目で分かるようにする */
+.voicebar { display: flex; align-items: center; gap: var(--gap); margin-top: var(--gap); padding: 7px 8px 7px 14px; background: var(--surface-2); border-radius: 999px; flex: none; min-width: 0; }
+.vstate { display: flex; align-items: center; gap: 7px; font-size: 12px; line-height: 1.6; white-space: nowrap; flex: none; }
+.vstate b { font-weight: 650; }
+.voicebar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); flex: none; }
+.voicebar i.starting { background: var(--viz-1); }
+.voicebar i.listening, .voicebar i.hearing { background: var(--viz-2); }
+.voicebar i.hearing { animation: blink 1.2s infinite; }
+.voicebar i.muted { background: var(--accent); }
+.vheard { flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voicebar button { padding: 5px 13px; font-size: 12px; flex: none; }
+@media (prefers-reduced-motion: reduce) { .voicebar i.hearing, .dots span { animation: none } }
+#mode-note:not(:empty) { margin-top: var(--gap-sm); }
 
 /* ===== 指標・評価 ===== */
 .metrics .muted { grid-column: 1 / -1; }
@@ -377,7 +408,7 @@ tr:last-child td { border-bottom: none; }
 .subtab-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .subtab { background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); padding: 6px 13px; font-size: 12.5px; border-radius: 999px; }
 .subtab:hover:not(:disabled) { color: var(--ink); }
-.subtab.active { background: var(--cta); color: var(--cta-ink); border-color: var(--cta); font-weight: 700; }
+.subtab.active { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 700; }
 .subtab:disabled { opacity: .4; cursor: default; }
 .subpanel { display: none; }
 .subpanel.active { display: block; }

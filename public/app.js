@@ -18,9 +18,11 @@ const api = async (url, opts) => {
 const S = {
   config: null,
   session: null,
-  thinking: null, // { start, timer, tick, node }
+  thinking: null, // { start, timer, tick, node, onDone }
   sending: false, // 送信中フラグ。連打でターンが消えるのを防ぐ
   progress: null,
+  mode: "text",   // "text"（打つ）/ "voice"（話す）
+  pendingInterruptMs: null, // 音声モードで、沈黙中に話し始めた時刻
 };
 
 /* ---------- 起動 ---------- */
@@ -42,6 +44,13 @@ const S = {
     s.value = "4";
   }
 
+  if (!SR) {
+    $("mode-select").querySelector('option[value="voice"]').disabled = true;
+    $("mic-btn").classList.add("hidden");
+  }
+  $("mode-select").onchange = renderMode;
+  renderMode();
+
   renderSpec();
   await refreshSessions();
   await loadReport();
@@ -54,6 +63,7 @@ document.querySelectorAll(".tab").forEach((t) => {
     document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
     t.classList.add("active");
     $(t.dataset.tab).classList.add("active");
+    if (t.dataset.tab !== "practice") stopPracticeAudio();
     if (t.dataset.tab === "report") loadReport();
     if (t.dataset.tab === "progress") loadProgress();
   };
@@ -67,6 +77,39 @@ function renderSceneDesc() {
 }
 
 /* ---------- 1. 練習 ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const END_OF_SPEECH_MS = 1500; // この長さ黙ったら「話し終わった」とみなす
+const END_OF_SPEECH_LABEL = `${END_OF_SPEECH_MS / 1000}秒`;
+
+/**
+ * マイクの状態。「待受したい(on)」と「実際に動いている(running)」を分けて持つ。
+ * SpeechRecognition は黙っていると勝手に終わるので、待受中なら掛け直す必要がある。
+ */
+const V = {
+  rec: null,
+  on: false,
+  running: false,
+  muted: false,       // 生徒の読み上げ中。自分の声を拾わないよう止める
+  autoSend: false,    // 音声モードでは話し終わりで自動送信する
+  startedAt: null,    // 話し始めた時刻（発話秒数の実測の起点）
+  spokeUntil: null,   // 話し終わった時刻。聞き取り結果の到着より声の切れ目のほうが正確
+  lastHeardAt: null,  // 最後に語を聞き取った時刻（声の切れ目が通知されないときの代わり）
+  finalText: "",
+  interimText: "",
+  typed: false,       // 手で打ち直したら実測は捨てる
+  silenceTimer: null,
+};
+
+function renderMode() {
+  const voice = $("mode-select").value === "voice";
+  $("tts-label").classList.toggle("hidden", voice);
+  $("mode-note").textContent = !SR
+    ? "このブラウザは音声入力に対応していません。Chrome か Edge で開くと「声で話す」が使えます。"
+    : voice
+      ? `マイクで練習します。話し終えて${END_OF_SPEECH_LABEL}黙ると自動で送信し、生徒役の返事を読み上げます。講師が話した秒数は実測して評価に渡します。`
+      : "キーボードで打って練習します。発話の秒数は文字数からの推定になります。";
+}
+
 $("start-btn").onclick = async () => {
   const sceneId = $("scene-select").value;
   const { session, scene } = await api("/api/sessions", {
@@ -74,13 +117,31 @@ $("start-btn").onclick = async () => {
     body: JSON.stringify({ sceneId, teacherName: $("teacher-name").value }),
   });
   S.session = session;
+  S.mode = SR && $("mode-select").value === "voice" ? "voice" : "text";
+  S.pendingInterruptMs = null;
   $("setup").classList.add("hidden");
   $("chatwrap").classList.remove("hidden");
   $("chat-scene").textContent = scene.name;
   $("chat-persona").textContent = `生徒役: ${S.config.persona.name}（${S.config.persona.profile.englishLevel.value}）`;
   $("chat").innerHTML = "";
   for (const t of session.turns) addBubble(t.role, t.text);
-  $("input").focus();
+
+  const voice = S.mode === "voice";
+  $("voicebar").classList.toggle("hidden", !voice);
+  $("input").placeholder = voice
+    ? "話した言葉がここに出ます（打ち直して送ることもできます）"
+    : "講師として英語で話しかける（Enterで送信 / Shift+Enterで改行）";
+  $("practice-hint").textContent = voice
+    ? "生徒役は答えるまで5〜8秒黙ります。黙っている間に話しかけると「割り込み」として記録します。生徒が話している間は、自分の声を拾わないようマイクを止めます。"
+    : "生徒役は答えるまで5〜8秒黙ります。待てたかどうかが評価軸「考える時間の確保」に入ります。";
+
+  if (voice) {
+    startListening(true);
+    const opening = session.turns[session.turns.length - 1];
+    if (opening) await speakStudent(opening.text);
+  } else {
+    $("input").focus();
+  }
 };
 
 function addBubble(role, text) {
@@ -108,24 +169,59 @@ function startThinking(ms, onDone) {
   const timer = setTimeout(() => finishThinking(), ms);
   S.thinking = { start, timer, tick, node, onDone };
 }
-function finishThinking() {
-  if (!S.thinking) return 0;
-  const { start, timer, tick, node, onDone } = S.thinking;
+/**
+ * 沈黙中に講師が口を開いた。注記を先に出してから生徒の返事を見せる
+ * （返事を先に出すと、生徒が答えた後で割り込んだように読めてしまう）。
+ * spoke は音声で話し始めた場合。生徒の返事は文字だけ出し、声は重ねない。
+ */
+function interruptThinking(spoke) {
+  if (!S.thinking) return null;
+  const waited = Date.now() - S.thinking.start;
+  addNotice(`沈黙中に${spoke ? "話し始めました" : "割り込みました"}（${(waited / 1000).toFixed(1)}秒）`);
+  finishThinking(spoke);
+  return waited;
+}
+
+/** 沈黙を終える。silent のときは返事を文字だけ出す（講師の声に重ねない）。 */
+function finishThinking(silent) {
+  if (!S.thinking) return;
+  const { timer, tick, node, onDone } = S.thinking;
   clearTimeout(timer);
   clearInterval(tick);
   node.remove();
   S.thinking = null;
-  const waited = Date.now() - start;
-  onDone();
-  return waited;
+  onDone(Boolean(silent));
 }
 
-function speak(text) {
-  if (!$("tts-toggle").checked || !window.speechSynthesis) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "en-US";
-  u.rate = 0.85;
-  speechSynthesis.speak(u);
+/** 生徒役の発話を読み上げる。読み上げ中はマイクを止め、終わったら戻す。 */
+function speakStudent(text) {
+  const wanted = S.mode === "voice" || $("tts-toggle").checked;
+  if (!wanted || !window.speechSynthesis) return Promise.resolve();
+  const resumeMic = V.on;
+  V.muted = true;
+  stopRec();
+  paintVoice();
+  return new Promise((resolve) => {
+    let ended = false;
+    const done = () => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(guard);
+      V.muted = false;
+      // 自分の声の残りを拾わないよう、少し置いてからマイクを戻す
+      if (resumeMic) setTimeout(() => { if (V.on && !V.muted) startRec(); }, 250);
+      paintVoice();
+      resolve();
+    };
+    // 読み上げ終了が通知されないことがあるので、長さから見積もった時間で必ず打ち切る
+    const guard = setTimeout(done, 3000 + text.length * 120);
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US";
+    u.rate = 0.85;
+    u.onend = done;
+    u.onerror = done;
+    speechSynthesis.speak(u);
+  });
 }
 
 async function send() {
@@ -133,32 +229,40 @@ async function send() {
   const text = input.value.trim();
   if (!text || !S.session || S.sending) return;
   S.sending = true;
+  clearTimeout(V.silenceTimer);
 
-  let interruptedAtMs = null;
-  if (S.thinking) {
-    interruptedAtMs = finishThinking();
-    addNotice(`沈黙中に割り込みました（${(interruptedAtMs / 1000).toFixed(1)}秒）`);
-  }
+  // 講師が話していた長さ。打ち直した回と、マイクを使わなかった回は実測なし
+  const endedAt = V.spokeUntil ?? V.lastHeardAt;
+  const spokenMs = !V.typed && V.startedAt !== null && endedAt !== null ? endedAt - V.startedAt : null;
+  const speechMs = spokenMs !== null && spokenMs >= 150 ? spokenMs : null;
+
+  // 割り込み：音声は「話し始めた時点」、テキストは「送信した時点」
+  let interruptedAtMs = S.pendingInterruptMs;
+  if (interruptedAtMs === null && S.thinking) interruptedAtMs = interruptThinking(false);
+  S.pendingInterruptMs = null;
 
   input.value = "";
+  resetHeard();
   $("send-btn").disabled = true;
   addBubble("teacher", text);
+  paintVoice();
 
   try {
     const { turn } = await api(`/api/sessions/${S.session.id}/turn`, {
       method: "POST",
-      body: JSON.stringify({ text, interruptedAtMs }),
+      body: JSON.stringify({ text, interruptedAtMs, speechMs }),
     });
-    startThinking(turn.thinkingMs, () => {
+    startThinking(turn.thinkingMs, (silent) => {
       addBubble("student", turn.text);
-      speak(turn.text);
+      if (!silent) speakStudent(turn.text);
     });
   } catch (err) {
     addNotice(`エラー: ${err.message}`);
   } finally {
     S.sending = false;
     $("send-btn").disabled = false;
-    input.focus();
+    if (S.mode !== "voice") input.focus();
+    paintVoice();
   }
 }
 
@@ -169,30 +273,149 @@ $("input").addEventListener("keydown", (e) => {
     send();
   }
 });
+// 手で打ち直したら、聞き取りから測った秒数は使わない
+$("input").addEventListener("input", () => {
+  if ($("input").value.trim() !== (V.finalText + " " + V.interimText).trim()) V.typed = true;
+});
 
-// 音声入力（対応ブラウザのみ）
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) $("mic-btn").style.display = "none";
-else {
+/* --- マイク --- */
+function ensureRec() {
+  if (V.rec || !SR) return V.rec;
   const rec = new SR();
   rec.lang = "en-US";
-  rec.interimResults = false;
-  let on = false;
-  rec.onresult = (e) => {
-    $("input").value = ($("input").value + " " + e.results[0][0].transcript).trim();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onstart = () => { V.running = true; paintVoice(); };
+  rec.onend = () => {
+    V.running = false;
+    if (V.on && !V.muted) startRec();   // 勝手に切れただけなので掛け直す
+    else paintVoice();
   };
-  rec.onend = () => { on = false; $("mic-btn").textContent = "🎤"; };
-  $("mic-btn").onclick = () => {
-    if (on) return rec.stop();
-    on = true;
-    $("mic-btn").textContent = "⏹";
-    rec.start();
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      V.on = false;
+      addNotice("マイクが使えませんでした。ブラウザでマイクを許可するか、テキストで練習してください。");
+    }
+    paintVoice();
   };
+  rec.onspeechstart = () => markSpeechStart();
+  // 声が切れた瞬間。聞き取り結果は遅れて届くので、発話の終わりはこちらで測る
+  rec.onspeechend = () => { if (V.startedAt !== null) V.spokeUntil = Date.now(); };
+  rec.onresult = onRecResult;
+  V.rec = rec;
+  return rec;
+}
+function startRec() {
+  const rec = ensureRec();
+  if (!rec || V.running) return;
+  try { rec.start(); } catch { /* すでに起動中。onend で掛け直す */ }
+}
+function stopRec() {
+  if (V.rec && V.running) {
+    try { V.rec.abort(); } catch { /* すでに止まっている */ }
+  }
+  V.running = false;
+}
+function startListening(autoSend) {
+  if (!SR) return;
+  V.on = true;
+  V.autoSend = Boolean(autoSend);
+  resetHeard();
+  startRec();
+  paintVoice();
+}
+function stopListening() {
+  V.on = false;
+  V.autoSend = false;
+  clearTimeout(V.silenceTimer);
+  stopRec();
+  paintVoice();
+}
+function resetHeard() {
+  V.startedAt = null;
+  V.spokeUntil = null;
+  V.lastHeardAt = null;
+  V.finalText = "";
+  V.interimText = "";
+  V.typed = false;
+  clearTimeout(V.silenceTimer);
+}
+
+/** 講師が話し始めた瞬間。生徒が黙って考えている最中なら、そこが割り込みの時刻になる。 */
+function markSpeechStart() {
+  if (!V.on || V.muted || V.startedAt !== null) return;
+  V.startedAt = Date.now();
+  if (S.thinking && S.pendingInterruptMs === null) S.pendingInterruptMs = interruptThinking(true);
+  paintVoice();
+}
+
+function onRecResult(e) {
+  markSpeechStart();
+  V.lastHeardAt = Date.now();
+  let interim = "";
+  for (let i = e.resultIndex; i < e.results.length; i++) {
+    const r = e.results[i];
+    if (r.isFinal) V.finalText = (V.finalText + " " + r[0].transcript).trim();
+    else interim += r[0].transcript;
+  }
+  V.interimText = interim.trim();
+  if (!V.typed) $("input").value = (V.finalText + " " + V.interimText).trim();
+  clearTimeout(V.silenceTimer);
+  V.silenceTimer = setTimeout(endOfSpeech, END_OF_SPEECH_MS);
+  paintVoice();
+}
+
+/** 話し終わり。音声モードならそのまま送る。 */
+function endOfSpeech() {
+  if (!V.autoSend || V.muted) return;
+  if (S.sending) {
+    V.silenceTimer = setTimeout(endOfSpeech, 400);
+    return;
+  }
+  if (!$("input").value.trim()) return resetHeard();
+  send();
+}
+
+function paintVoice() {
+  $("mic-btn").textContent = V.on ? "⏹" : "🎤";
+  if ($("voicebar").classList.contains("hidden")) return;
+  const state = !V.on ? "off"
+    : V.muted ? "muted"
+      : V.startedAt !== null ? "hearing"
+        : V.running ? "listening" : "starting";
+  $("voice-dot").className = state;
+  $("voice-state").textContent = {
+    off: "マイクを止めています",
+    starting: "マイクを準備しています…",
+    listening: "聞いています。そのまま話してください",
+    hearing: `聞き取り中。${END_OF_SPEECH_LABEL}黙ると送信します`,
+    muted: `${S.config.persona.name} が話しています`,
+  }[state];
+  $("voice-heard").textContent = V.interimText;
+  $("voice-toggle").textContent = V.on ? "マイクを止める" : "マイクを再開する";
+}
+
+// 音声モードでは話し終わりで自動送信、テキストモードでは送信欄に文字を入れるだけ
+const toggleMic = () => (V.on ? stopListening() : startListening(S.mode === "voice"));
+$("voice-toggle").onclick = toggleMic;
+$("mic-btn").onclick = toggleMic;
+
+/** 練習から離れるときは、マイクと読み上げを必ず止める。 */
+function stopPracticeAudio() {
+  stopListening();
+  if (window.speechSynthesis) speechSynthesis.cancel();
 }
 
 $("finish-btn").onclick = async () => {
-  if (S.thinking) finishThinking();
-  await openSession(S.session.id);
+  const id = S.session.id;
+  finishThinking(true);
+  stopPracticeAudio();
+  S.pendingInterruptMs = null;
+  // 次の練習を始められるよう、場面を選ぶところまで戻す
+  $("chatwrap").classList.add("hidden");
+  $("voicebar").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+  await openSession(id);
   goTab("review");
 };
 
@@ -261,6 +484,10 @@ function renderTranscript(session) {
   }
 }
 
+// 発話秒数が実測か推定かで評価の読み方が変わるので必ず添える。
+// server/metrics.mjs と同じ3つの区分を、タイルに収まる長さに言い換えたもの
+const SECONDS_SOURCE = { measured: "音声の実測", mixed: "一部実測", estimated: "文字数からの推定" };
+
 function renderMetrics(m) {
   const box = $("metrics");
   if (!m) {
@@ -269,7 +496,8 @@ function renderMetrics(m) {
   }
   const cards = [
     ["講師の発話量", `${(m.words.teacherRatio * 100).toFixed(0)}<small>%</small>`, `講師${m.words.teacher}語 / 生徒${m.words.student}語`],
-    ["1回の連続発話 最長", `${m.teacherTurn.maxSeconds}<small>秒</small>`, `平均 ${m.teacherTurn.avgSeconds}秒`],
+    ["1回の連続発話 最長", `${m.teacherTurn.maxSeconds}<small>秒</small>`,
+      `平均 ${m.teacherTurn.avgSeconds}秒 / 合計 ${m.teacherTurn.totalSeconds ?? "-"}秒・${SECONDS_SOURCE[m.teacherTurn.secondsSource] || "推定"}`],
     ["沈黙を破るまで 最短", `${m.wait.minSeconds ?? "-"}<small>秒</small>`, `平均 ${m.wait.avgSeconds ?? "-"}秒`],
     ["割り込み", `${m.wait.interruptions}<small>回</small>`, `沈黙ウィンドウ ${m.wait.windows}回`],
     ["講師の質問数", `${m.teacherTurn.questionCount}<small>回</small>`, `単語だけの相づち ${m.teacherTurn.shortAckCount}回`],

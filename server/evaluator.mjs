@@ -69,12 +69,15 @@ function transcriptText(turns) {
   return turns
     .map((t, i) => {
       const who = t.role === "teacher" ? "講師" : "生徒";
-      const extra =
-        t.role === "student" && typeof t.thinkingMs === "number"
-          ? typeof t.interruptedAtMs === "number"
+      let extra = "";
+      if (t.role === "student" && typeof t.thinkingMs === "number") {
+        extra =
+          typeof t.interruptedAtMs === "number"
             ? `（この発話の前に ${(t.thinkingMs / 1000).toFixed(1)} 秒の沈黙予定。講師は ${(t.interruptedAtMs / 1000).toFixed(1)} 秒で割り込んだ）`
-            : `（この発話の前に ${(t.thinkingMs / 1000).toFixed(1)} 秒考えた。講師は最後まで待った）`
-          : "";
+            : `（この発話の前に ${(t.thinkingMs / 1000).toFixed(1)} 秒考えた。講師は最後まで待った）`;
+      } else if (t.role === "teacher" && typeof t.speechMs === "number") {
+        extra = `（この発話を ${(t.speechMs / 1000).toFixed(1)} 秒かけて声で話した。実測）`;
+      }
       return `${i + 1}. ${who}: ${t.text}${extra}`;
     })
     .join("\n");

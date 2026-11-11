@@ -1,6 +1,6 @@
 // 依存ロジック（自動計測・重み付きκ・判定レポート）を、合成データで通しで検証する。
 import assert from "node:assert/strict";
-import { computeMetrics, conversationSeconds } from "../server/metrics.mjs";
+import { computeMetrics, conversationSeconds, metricsSummary } from "../server/metrics.mjs";
 import { weightedKappa, agreementDetail } from "../server/agreement.mjs";
 import { buildReport } from "../server/report.mjs";
 import { rubric } from "../server/config.mjs";
@@ -32,6 +32,27 @@ const mockMetrics = computeMetrics([
 ]);
 assert.equal(mockMetrics.latency.avgSeconds, null, "MOCKだけなら応答時間は未測定");
 console.log("✓ 自動計測", JSON.stringify(m.wait));
+
+/* 1b) 音声で話した回は、発話の長さを実測値から出す（文字数換算にしない） */
+assert.equal(m.teacherTurn.secondsSource, "estimated", "打った回だけなら推定");
+assert.equal(m.teacherTurn.measuredTurns, 0);
+const voiceTurns = [
+  { role: "student", text: "Hello.", at: t0 },
+  { role: "teacher", text: "Hi, how are you?", at: t0 + 3000, speechMs: 9000 },
+  { role: "student", text: "Good.", at: t0 + 12000, thinkingMs: 6000, apiLatencyMs: 1200 },
+];
+const vm = computeMetrics(voiceTurns);
+assert.equal(vm.teacherTurn.maxSeconds, 9, "実測の9秒を使う（4語の文字数換算なら1.6秒）");
+assert.equal(vm.teacherTurn.secondsSource, "measured");
+assert.equal(vm.teacherTurn.measuredTurns, 1);
+assert.ok(metricsSummary(vm).includes("音声の実測"), "実測か推定かを評価AIにも伝える");
+// 打った回が混ざったら、その回だけ文字数から見積もる
+const mixedTurns = computeMetrics([...voiceTurns, { role: "teacher", text: "a b c d e", at: t0 + 13000 }]);
+assert.equal(mixedTurns.teacherTurn.secondsSource, "mixed");
+assert.equal(mixedTurns.teacherTurn.totalSeconds, 11, "実測9秒 + 推定5語/2.5=2秒");
+assert.equal(computeMetrics([{ role: "teacher", text: "Hi", at: t0, speechMs: 0 }]).teacherTurn.secondsSource,
+  "estimated", "0秒は実測とみなさない");
+console.log("✓ 発話秒数の実測", vm.teacherTurn.maxSeconds, "秒 /", mixedTurns.teacherTurn.secondsSource);
 
 /* 2) 重み付きκ */
 assert.equal(weightedKappa([[1, 1], [3, 3], [5, 5], [2, 2]]).kappa, 1);

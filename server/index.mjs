@@ -8,6 +8,7 @@ import { evaluate, evaluateStability } from "./evaluator.mjs";
 import { buildReport } from "./report.mjs";
 import { buildProgress, listTeachers } from "./progress.mjs";
 import * as store from "./store.mjs";
+import { withSessionLock } from "./lock.mjs";
 
 const PUBLIC = path.join(ROOT, "public");
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8" };
@@ -101,35 +102,45 @@ const server = http.createServer(async (req, res) => {
 
     const turnMatch = p.match(/^\/api\/sessions\/([\w-]+)\/turn$/);
     if (turnMatch && req.method === "POST") {
-      const session = store.load(turnMatch[1]);
-      if (!session) return json(res, 404, { error: "session not found" });
       const body = await readBody(req);
       const text = (body.text || "").trim();
       if (!text) return json(res, 400, { error: "empty text" });
 
-      // 直前の生徒ターンに、講師が沈黙中に割り込んだ時間を記録する
-      if (typeof body.interruptedAtMs === "number") {
-        const last = [...session.turns].reverse().find((t) => t.role === "student");
-        if (last && last.interruptedAtMs === undefined) last.interruptedAtMs = body.interruptedAtMs;
-      }
+      const result = await withSessionLock(turnMatch[1], async () => {
+        const session = store.load(turnMatch[1]);
+        if (!session) return { code: 404, body: { error: "session not found" } };
 
-      session.turns.push({ role: "teacher", text, at: Date.now(), interrupted: Boolean(body.interruptedAtMs) });
-      const history = session.turns.slice(0, -1).map((t) => ({ role: t.role, text: t.text }));
-      const reply = await studentTurn({ sceneId: session.sceneId, history, teacherText: text });
-      const studentRecord = {
-        role: "student", text: reply.text, at: Date.now(),
-        thinkingMs: reply.thinkingMs, apiLatencyMs: reply.apiLatencyMs, mock: reply.mock,
-      };
-      session.turns.push(studentRecord);
-      store.save(session);
-      return json(res, 200, { turn: studentRecord });
+        // 直前の「沈黙のあった生徒ターン」に、講師が割り込むまでの時間を記録する
+        if (typeof body.interruptedAtMs === "number") {
+          const last = [...session.turns]
+            .reverse()
+            .find((t) => t.role === "student" && typeof t.thinkingMs === "number");
+          if (last && last.interruptedAtMs === undefined) last.interruptedAtMs = body.interruptedAtMs;
+        }
+
+        session.turns.push({ role: "teacher", text, at: Date.now() });
+        // 生徒役の生成に失敗しても講師の発話が消えないよう、先に保存する
+        store.save(session);
+
+        const history = session.turns.slice(0, -1).map((t) => ({ role: t.role, text: t.text }));
+        const reply = await studentTurn({ sceneId: session.sceneId, history, teacherText: text });
+        const studentRecord = {
+          role: "student", text: reply.text, at: Date.now(),
+          thinkingMs: reply.thinkingMs, apiLatencyMs: reply.apiLatencyMs, mock: reply.mock,
+        };
+        session.turns.push(studentRecord);
+        store.save(session);
+        return { code: 200, body: { turn: studentRecord } };
+      });
+      return json(res, result.code, result.body);
     }
 
     const evalMatch = p.match(/^\/api\/sessions\/([\w-]+)\/evaluate$/);
     if (evalMatch && req.method === "POST") {
-      const session = store.load(evalMatch[1]);
-      if (!session) return json(res, 404, { error: "session not found" });
       const body = await readBody(req);
+      const result = await withSessionLock(evalMatch[1], async () => {
+      const session = store.load(evalMatch[1]);
+      if (!session) return { code: 404, body: { error: "session not found" } };
       session.metrics = computeMetrics(session.turns);
 
       if (body.stability) {
@@ -144,14 +155,17 @@ const server = http.createServer(async (req, res) => {
         });
       }
       store.save(session);
-      return json(res, 200, { metrics: session.metrics, evaluation: session.evaluation, stability: session.stability });
+      return { code: 200, body: { metrics: session.metrics, evaluation: session.evaluation, stability: session.stability } };
+      });
+      return json(res, result.code, result.body);
     }
 
     const trainerMatch = p.match(/^\/api\/sessions\/([\w-]+)\/trainer$/);
     if (trainerMatch && req.method === "POST") {
-      const session = store.load(trainerMatch[1]);
-      if (!session) return json(res, 404, { error: "session not found" });
       const body = await readBody(req);
+      const saved = await withSessionLock(trainerMatch[1], async () => {
+      const session = store.load(trainerMatch[1]);
+      if (!session) return null;
       session.trainer = {
         scores: body.scores || {},
         personaFidelity: Boolean(body.personaFidelity),
@@ -162,7 +176,10 @@ const server = http.createServer(async (req, res) => {
         ratedAt: Date.now(),
       };
       store.save(session);
-      return json(res, 200, { trainer: session.trainer, report: buildReport(store.listSessions()) });
+      return session.trainer;
+      });
+      if (!saved) return json(res, 404, { error: "session not found" });
+      return json(res, 200, { trainer: saved, report: buildReport(store.listSessions()) });
     }
 
     const getMatch = p.match(/^\/api\/sessions\/([\w-]+)$/);

@@ -1,4 +1,6 @@
-const K = 5; // 5段階
+import { rubric } from "./config.mjs";
+
+const K = rubric.scale; // 評価軸の段階数（config/rubric.json）
 
 /**
  * 重み付きκ（Cohen's weighted kappa）。

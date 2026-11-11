@@ -1,4 +1,5 @@
 import { rubric, scenes } from "./config.mjs";
+import { conversationSeconds } from "./metrics.mjs";
 
 const DAY = 86400000;
 const dayKey = (ms) => {
@@ -33,12 +34,6 @@ function streaks(dayKeys) {
   return { current, longest, activeDays: days.length, days };
 }
 
-/** 会話の所要時間。評価前でも出せるよう、発話の時刻から直接求める。 */
-function sessionSeconds(session) {
-  const at = (session.turns || []).map((t) => t.at).filter(Boolean);
-  return at.length > 1 ? (Math.max(...at) - Math.min(...at)) / 1000 : 0;
-}
-
 /** 1セッションの総合点＝採点対象になった軸の平均。 */
 function sessionOverall(session) {
   const scored = (session.evaluation?.axes || []).filter((a) => a.applicable);
@@ -57,15 +52,18 @@ function weekGrid(sessions, weeks = 5) {
     counts.set(k, (counts.get(k) || 0) + 1);
   }
   // 今週の月曜を起点に、過去 weeks 週ぶんを古い順で返す
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const monday = new Date(now.getTime() - ((now.getDay() + 6) % 7) * DAY);
+  const monday = new Date();
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
   const today = dayKey(Date.now());
   const rows = [];
   for (let w = weeks - 1; w >= 0; w--) {
     const row = [];
     for (let d = 0; d < 7; d++) {
-      const at = monday.getTime() - w * 7 * DAY + d * DAY;
+      // 固定の86400000msではなく暦で進める（月末・サマータイムでずれないように）
+      const cell = new Date(monday);
+      cell.setDate(cell.getDate() - w * 7 + d);
+      const at = cell.getTime();
       const key = dayKey(at);
       const count = counts.get(key) || 0;
       row.push({
@@ -167,7 +165,7 @@ export function buildProgress(allSessions, teacherName) {
       best: overalls.length ? round(Math.max(...overalls), 2) : null,
       trend: overalls.map((v) => round(v, 2)),
     },
-    practiceSeconds: Math.round(mine.reduce((a, s) => a + sessionSeconds(s), 0)),
+    practiceSeconds: Math.round(mine.reduce((a, s) => a + conversationSeconds(s.turns), 0)),
     streak: streaks(mine.map((s) => dayKey(s.createdAt))),
     week: weekGrid(mine),
     scenesCovered: sceneStats.filter((s) => s.count > 0).length,

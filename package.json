@@ -8,6 +8,7 @@
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
     "check": "node scripts/selfcheck.mjs",
+    "lint": "eslint server scripts public",
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
@@ -15,5 +16,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.0"
   }
 }

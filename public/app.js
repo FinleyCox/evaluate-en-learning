@@ -18,8 +18,9 @@ const api = async (url, opts) => {
 const S = {
   config: null,
   session: null,
-  scene: null,
   thinking: null, // { start, timer, tick, node }
+  sending: false, // 送信中フラグ。連打でターンが消えるのを防ぐ
+  progress: null,
 };
 
 /* ---------- 起動 ---------- */
@@ -37,7 +38,7 @@ const S = {
   for (const id of ["t-useful", "t-trust"]) {
     const s = $(id);
     s.appendChild(new Option("—", ""));
-    for (let i = 5; i >= 1; i--) s.appendChild(new Option(`${i}`, String(i)));
+    for (let i = S.config.rubric.scale; i >= 1; i--) s.appendChild(new Option(`${i}`, String(i)));
     s.value = "4";
   }
 
@@ -73,7 +74,6 @@ $("start-btn").onclick = async () => {
     body: JSON.stringify({ sceneId, teacherName: $("teacher-name").value }),
   });
   S.session = session;
-  S.scene = scene;
   $("setup").classList.add("hidden");
   $("chatwrap").classList.remove("hidden");
   $("chat-scene").textContent = scene.name;
@@ -108,7 +108,7 @@ function startThinking(ms, onDone) {
   const timer = setTimeout(() => finishThinking(), ms);
   S.thinking = { start, timer, tick, node, onDone };
 }
-function finishThinking(interrupted = false) {
+function finishThinking() {
   if (!S.thinking) return 0;
   const { start, timer, tick, node, onDone } = S.thinking;
   clearTimeout(timer);
@@ -116,7 +116,7 @@ function finishThinking(interrupted = false) {
   node.remove();
   S.thinking = null;
   const waited = Date.now() - start;
-  onDone(interrupted, waited);
+  onDone();
   return waited;
 }
 
@@ -131,11 +131,12 @@ function speak(text) {
 async function send() {
   const input = $("input");
   const text = input.value.trim();
-  if (!text || !S.session) return;
+  if (!text || !S.session || S.sending) return;
+  S.sending = true;
 
   let interruptedAtMs = null;
   if (S.thinking) {
-    interruptedAtMs = finishThinking(true);
+    interruptedAtMs = finishThinking();
     addNotice(`沈黙中に割り込みました（${(interruptedAtMs / 1000).toFixed(1)}秒）`);
   }
 
@@ -155,6 +156,7 @@ async function send() {
   } catch (err) {
     addNotice(`エラー: ${err.message}`);
   } finally {
+    S.sending = false;
     $("send-btn").disabled = false;
     input.focus();
   }
@@ -189,7 +191,7 @@ else {
 }
 
 $("finish-btn").onclick = async () => {
-  if (S.thinking) finishThinking(false);
+  if (S.thinking) finishThinking();
   await openSession(S.session.id);
   goTab("review");
 };
@@ -198,6 +200,7 @@ $("finish-btn").onclick = async () => {
 async function refreshSessions() {
   const list = await api("/api/sessions");
   const sel = $("session-picker");
+  const keep = sel.value;
   sel.innerHTML = "";
   for (const s of list) {
     const sc = S.config.scenes.find((x) => x.id === s.sceneId);
@@ -206,6 +209,7 @@ async function refreshSessions() {
       s.id
     ));
   }
+  if (keep && list.some((s) => s.id === keep)) sel.value = keep;
   return list;
 }
 $("load-session").onclick = () => $("session-picker").value && openSession($("session-picker").value);
@@ -213,9 +217,9 @@ $("load-session").onclick = () => $("session-picker").value && openSession($("se
 async function openSession(id) {
   const s = await api(`/api/sessions/${id}`);
   S.session = s;
-  S.scene = S.config.scenes.find((x) => x.id === s.sceneId);
-  $("review-empty").classList.add("hidden");
+  $("review-hint").classList.add("hidden");
   $("review-body").classList.remove("hidden");
+  renderTranscript(s);
   renderMetrics(s.metrics);
   if (s.evaluation) renderEvaluation(s.evaluation, s.stability);
   else {
@@ -223,6 +227,28 @@ async function openSession(id) {
     $("trainer-card").classList.add("hidden");
   }
   await refreshSessions();
+}
+
+/** 評価タブに会話ログを出す。トレーナーはこれを読んで独立に採点する。 */
+function renderTranscript(session) {
+  const scene = S.config.scenes.find((x) => x.id === session.sceneId);
+  $("transcript-meta").textContent =
+    `${scene ? scene.name : session.sceneId}　/　講師: ${session.teacherName}　/　${session.turns.length}ターン`;
+  const box = $("transcript");
+  box.innerHTML = "";
+  for (const t of session.turns) {
+    const b = el("div", `bubble ${t.role}`);
+    b.appendChild(el("span", "who", t.role === "teacher" ? "講師" : S.config.persona.name));
+    b.appendChild(document.createTextNode(t.text));
+    box.appendChild(b);
+    if (t.role === "student" && typeof t.thinkingMs === "number") {
+      const waited = typeof t.interruptedAtMs === "number" ? t.interruptedAtMs : t.thinkingMs;
+      box.appendChild(el("div", "notice",
+        typeof t.interruptedAtMs === "number"
+          ? `この発話の前に${(t.thinkingMs / 1000).toFixed(1)}秒の沈黙。講師は${(waited / 1000).toFixed(1)}秒で割り込んだ`
+          : `この発話の前に${(t.thinkingMs / 1000).toFixed(1)}秒の沈黙。講師は最後まで待った`));
+    }
+  }
 }
 
 function renderMetrics(m) {
@@ -270,7 +296,8 @@ async function runEvaluation(stability) {
   }
 }
 
-const dots = (n) => `<span class="dots5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
+const steps = () => Array.from({ length: S.config.rubric.scale }, (_, i) => i + 1);
+const dots = (n) => `<span class="dots5">${steps().map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
 
 function renderEvaluation(ev, stability) {
   $("eval-card").classList.remove("hidden");
@@ -285,7 +312,7 @@ function renderEvaluation(ev, stability) {
       <div class="axis-head">
         <div><span class="axis-name">${esc(def.name)}</span>
           <div class="axis-behavior">${esc(def.behavior)}</div></div>
-        <div class="score">${a.applicable ? `${a.score} / 5 ${dots(a.score)}` : "該当行動なし"}</div>
+        <div class="score">${a.applicable ? `${a.score} / ${S.config.rubric.scale} ${dots(a.score)}` : "該当行動なし"}</div>
       </div>
       <div class="rationale">${esc(a.rationale)}</div>
       ${(a.evidence || []).map((e) => `
@@ -330,7 +357,7 @@ function renderTrainerForm(ev) {
           <div class="axis-behavior">${esc(def.behavior)}${a.applicable ? "" : "（AIは該当行動なしと判定）"}</div></div>
         <select data-axis="${esc(a.id)}">
           <option value="">—（採点しない）</option>
-          ${[1, 2, 3, 4, 5].map((i) => `<option value="${i}" ${saved === i ? "selected" : ""}>${i}: ${esc(def.descriptors[i])}</option>`).join("")}
+          ${steps().map((i) => `<option value="${i}" ${saved === i ? "selected" : ""}>${i}: ${esc(def.descriptors[i])}</option>`).join("")}
         </select>
       </div>`;
     box.appendChild(row);
@@ -508,9 +535,9 @@ function renderProgress(p) {
     : "";
 
   // 1) 数値タイル（ヒーロー数値：グラフにするより数字のほうが速く読める）
-  const pct = p.overall.avg ? Math.round((p.overall.avg / 5) * 100) : 0;
+  const pct = p.overall.avg ? Math.round((p.overall.avg / S.config.rubric.scale) * 100) : 0;
   $("progress-tiles").innerHTML = [
-    `<div class="tile hero"><span class="k">総合スコア</span><span class="v">${p.overall.avg ?? "—"}<small> / 5</small></span><span class="s">到達 ${pct}%　最高 ${p.overall.best ?? "—"}</span></div>`,
+    `<div class="tile hero"><span class="k">総合スコア</span><span class="v">${p.overall.avg ?? "—"}<small> / ${S.config.rubric.scale}</small></span><span class="s">到達 ${pct}%　最高 ${p.overall.best ?? "—"}</span></div>`,
     `<div class="tile"><span class="k">練習時間</span><span class="v">${fmtMin(p.practiceSeconds)}</span><span class="s">${p.sessions} 回ぶん</span></div>`,
     `<div class="tile"><span class="k">連続練習日数</span><span class="v" style="color:var(--accent)">${p.streak.current}<small> 日</small></span><span class="s">最長 ${p.streak.longest} 日 / 練習した日 ${p.streak.activeDays} 日</span></div>`,
     `<div class="tile"><span class="k">場面の制覇</span><span class="v">${p.scenesCovered}<small> / ${p.scenesTotal}</small></span><span class="s">6場面のうち練習済み</span></div>`,
@@ -538,7 +565,7 @@ function renderProgress(p) {
   // 3) 評価軸の上達（単一系列の横棒。凡例は不要、値は直接ラベル）
   $("axisbars").innerHTML = p.axes.map((a) => {
     const has = a.attempts > 0;
-    const w = has ? (a.avg / 5) * 100 : 0;
+    const w = has ? (a.avg / S.config.rubric.scale) * 100 : 0;
     const d = a.delta;
     const dCls = d === null ? "flat" : d > 0.05 ? "up" : d < -0.05 ? "down" : "flat";
     const dTxt = d === null ? "" : `<span class="delta ${dCls}">${d > 0.05 ? "▲+" : d < -0.05 ? "▼" : "±"}${Math.abs(d).toFixed(1)}</span>`;
@@ -585,7 +612,7 @@ function sparkline(points) {
   const grid = [1, 3, 5].map((v) =>
     `<line class="gl" x1="${PX}" y1="${y(v)}" x2="${W - PX}" y2="${y(v)}"></line>
      <text x="0" y="${y(v) + 3}">${v}</text>`).join("");
-  const dots = points.map((p, i) =>
+  const marks = points.map((p, i) =>
     `<circle class="pt" cx="${x(i).toFixed(1)}" cy="${y(p.overall).toFixed(1)}" r="4.5">
       <title>${esc(fmtDate(p.at))}　${esc(p.sceneName)}　総合 ${p.overall}${p.trainerOverall !== null ? `（トレーナー ${p.trainerOverall}）` : ""}</title>
      </circle>`).join("");
@@ -593,7 +620,7 @@ function sparkline(points) {
     `<text x="${x(i).toFixed(1)}" y="${(y(points[i].overall) - 10).toFixed(1)}" text-anchor="${anchor}" style="font-weight:700;fill:var(--ink)">${points[i].overall}</text>`;
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
     aria-label="総合スコアの推移。${points.length}回ぶん、${points[0].overall}点から${points[points.length - 1].overall}点へ">
-    ${grid}<path class="ln" d="${d}"></path>${dots}${label(0, "start")}${label(points.length - 1, "end")}
+    ${grid}<path class="ln" d="${d}"></path>${marks}${label(0, "start")}${label(points.length - 1, "end")}
   </svg>
   <p class="muted">左が古い回。点にカーソルを合わせると日付と場面が出ます（縦軸 1〜5点）</p>`;
 }

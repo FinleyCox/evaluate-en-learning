@@ -126,15 +126,25 @@
 
   <!-- 2. 評価・採点 -->
   <section id="review" class="panel">
-    <div class="card" id="review-empty">
-      <p class="muted">練習を終えると、ここに自動計測と評価AIの採点が表示されます。</p>
+    <div class="card">
+      <p class="muted" id="review-hint">練習を終えると、ここに自動計測と評価AIの採点が表示されます。</p>
       <div class="row">
-        <select id="session-picker"></select>
-        <button id="load-session" class="ghost">保存済みセッションを開く</button>
+        <label>セッション
+          <select id="session-picker"></select>
+        </label>
+        <button id="load-session" class="ghost">開く</button>
       </div>
     </div>
 
     <div id="review-body" class="hidden">
+      <div class="card">
+        <div class="row between">
+          <h2>会話ログ</h2>
+          <span class="muted" id="transcript-meta"></span>
+        </div>
+        <div id="transcript" class="chat"></div>
+      </div>
+
       <div class="card">
         <div class="row between">
           <h2>自動計測</h2>

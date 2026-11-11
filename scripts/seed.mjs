@@ -12,7 +12,6 @@ const TEACHER = process.argv[2] || "Tristan（デモ）";
 // 乱数を固定し、実行するたび同じデモデータになるようにする
 let seed = 20261111;
 const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
-const pick = (xs) => xs[Math.floor(rnd() * xs.length)];
 const clamp = (n) => Math.max(1, Math.min(5, Math.round(n)));
 
 const TALK = {

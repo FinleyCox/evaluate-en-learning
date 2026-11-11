@@ -1,14 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { HAS_API_KEY, MODEL_ID, STUDENT_MODEL_ID } from "./config.mjs";
+import { HAS_API_KEY, MODEL_ID } from "./config.mjs";
 
 let client = null;
-export function getClient() {
+function getClient() {
   if (!HAS_API_KEY) return null;
   if (!client) client = new Anthropic();
   return client;
 }
 
-export { MODEL_ID, STUDENT_MODEL_ID };
 
 /**
  * テキスト応答を1件取得する。未設定・失敗時は null を返し、呼び出し側が

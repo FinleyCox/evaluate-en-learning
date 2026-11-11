@@ -5,18 +5,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(here, "..");
 
-// .env を最小限だけ読む（依存を増やさないための簡易実装）
-function loadDotEnv() {
-  const file = path.join(ROOT, ".env");
-  if (!fs.existsSync(file)) return;
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    const value = m[2].replace(/^["']|["']$/g, "");
-    if (!process.env[m[1]]) process.env[m[1]] = value;
-  }
-}
-loadDotEnv();
+// .env の読み込みは Node 標準（process.loadEnvFile）に任せる
+const envFile = path.join(ROOT, ".env");
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 const read = (name) =>
   JSON.parse(fs.readFileSync(path.join(ROOT, "config", name), "utf8"));
@@ -35,4 +26,3 @@ export const HAS_API_KEY = Boolean(
 );
 
 export const sceneById = (id) => scenes.find((s) => s.id === id);
-export const axisById = (id) => rubric.axes.find((a) => a.id === id);

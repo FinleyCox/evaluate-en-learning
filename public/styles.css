@@ -279,6 +279,20 @@ details.tableview[open] { padding-bottom: 4px; }
 .composer textarea { flex: 1 1 auto; }
 .hint { font-size: 11px; line-height: 1.6; color: var(--ink-3); margin-top: var(--gap-sm); flex: none; }
 
+/* 音声モードの状態帯。いま聞いているのか、生徒が話しているのかを一目で分かるようにする */
+.voicebar { display: flex; align-items: center; gap: var(--gap); margin-top: var(--gap); padding: 7px 8px 7px 14px; background: var(--surface-2); border-radius: 999px; flex: none; min-width: 0; }
+.vstate { display: flex; align-items: center; gap: 7px; font-size: 12px; line-height: 1.6; white-space: nowrap; flex: none; }
+.vstate b { font-weight: 650; }
+.voicebar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); flex: none; }
+.voicebar i.starting { background: var(--viz-1); }
+.voicebar i.listening, .voicebar i.hearing { background: var(--viz-2); }
+.voicebar i.hearing { animation: blink 1.2s infinite; }
+.voicebar i.muted { background: var(--accent); }
+.vheard { flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voicebar button { padding: 5px 13px; font-size: 12px; flex: none; }
+@media (prefers-reduced-motion: reduce) { .voicebar i.hearing, .dots span { animation: none } }
+#mode-note:not(:empty) { margin-top: var(--gap-sm); }
+
 /* ===== 指標・評価 ===== */
 .metrics .muted { grid-column: 1 / -1; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--gap-sm); }

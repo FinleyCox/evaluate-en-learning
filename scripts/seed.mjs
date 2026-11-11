@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ROOT, rubric, scenes } from "../server/config.mjs";
+import { computeMetrics } from "../server/metrics.mjs";
 
 const DIR = path.join(ROOT, "data", "sessions");
 fs.mkdirSync(DIR, { recursive: true });
@@ -23,8 +24,12 @@ const TALK = {
   care3: [["Hmm... I want to say something, but difficult.", 0], ["What are you trying to say?", 1], ["気圧... what do you say in English?", 0], ["Good question. Can you describe it in other words?", 1], ["It is... air thing. When it change, my head is painful.", 0]],
 };
 
-/** n日前の練習セッションを1件作る。progress は 0（初期）〜1（終盤）で上達を表す。 */
+/**
+ * n日前の練習セッションを1件作る。progress は 0（初期）〜1（終盤）で上達を表す。
+ * 直近の回（8日前以降）は音声モードで練習した想定にして、講師の発話秒数を実測値として持たせる。
+ */
 function makeSession(daysAgo, sceneId, progress, idx) {
+  const voice = daysAgo <= 8;
   // その日の0時を基準に時刻を足す（now からの引き算だと時刻の繰り上がりで日がずれる）
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
@@ -34,6 +39,10 @@ function makeSession(daysAgo, sceneId, progress, idx) {
   );
   const turns = TALK[sceneId].map(([text, isTeacher], i) => {
     const t = { role: isTeacher ? "teacher" : "student", text, at: base + i * 25000 };
+    if (isTeacher && voice) {
+      // 上達するほど自分の話は短く切り上げる
+      t.speechMs = Math.round(7000 - progress * 2500 + (rnd() - 0.5) * 2000);
+    }
     if (!isTeacher && i > 0) {
       t.thinkingMs = 5000 + Math.floor(rnd() * 3000);
       t.apiLatencyMs = 900 + Math.floor(rnd() * 900);
@@ -56,31 +65,13 @@ function makeSession(daysAgo, sceneId, progress, idx) {
     };
   });
 
-  const wait = turns.filter((t) => t.thinkingMs);
-  const interruptions = wait.filter((t) => t.interruptedAtMs).length;
-  const words = (s) => s.trim().split(/\s+/).length;
-  const tW = turns.filter((t) => t.role === "teacher").reduce((a, t) => a + words(t.text), 0);
-  const sW = turns.filter((t) => t.role === "student").reduce((a, t) => a + words(t.text), 0);
-
   const session = {
     id: `${new Date(base).toISOString().slice(0, 10)}-seed${String(idx).padStart(2, "0")}`,
     createdAt: base, updatedAt: base,
     sceneId, teacherName: TEACHER, personaId: "hesitant-over-polite", seeded: true,
     turns,
-    metrics: {
-      turns: { teacher: turns.filter((t) => t.role === "teacher").length, student: turns.filter((t) => t.role === "student").length },
-      words: { teacher: tW, student: sW, teacherRatio: Math.round((tW / (tW + sW)) * 100) / 100 },
-      teacherTurn: { maxSeconds: 3.6, avgSeconds: 2.8, questionCount: 2, shortAckCount: rnd() > 0.7 ? 1 : 0 },
-      wait: {
-        windows: wait.length, interruptions,
-        minSeconds: Math.round(Math.min(...wait.map((t) => (t.interruptedAtMs ?? t.thinkingMs) / 1000)) * 10) / 10,
-        avgSeconds: Math.round((wait.reduce((a, t) => a + (t.interruptedAtMs ?? t.thinkingMs), 0) / wait.length / 1000) * 10) / 10,
-        waitedFullRate: Math.round(((wait.length - interruptions) / wait.length) * 100) / 100,
-      },
-      latency: { avgSeconds: 1.4, maxSeconds: 1.9 },
-      recall: { keywordsMentionedByTeacher: sceneId === "lobby2" && progress > 0.4 ? ["osaka"] : [] },
-      durationSeconds: (turns.length - 1) * 25,
-    },
+    // 本番と同じ計算を通す（デモ用に手で書くと、画面と実装がずれる）
+    metrics: computeMetrics(turns),
     evaluation: {
       mock: true, axes,
       counts: { directTranslation: Math.max(0, 2 - Math.round(progress * 2)), elicitationPrompts: Math.round(progress * 3), previousTopicFollowUps: sceneId === "lobby2" ? 1 : 0 },

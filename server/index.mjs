@@ -105,20 +105,26 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const text = (body.text || "").trim();
       if (!text) return json(res, 400, { error: "empty text" });
+      // 音声で話した回は、話し始めから声の切れ目までを実測して送ってくる（上限10分）
+      const speechMs =
+        Number.isFinite(body.speechMs) && body.speechMs > 0 ? Math.min(Math.round(body.speechMs), 600000) : null;
 
       const result = await withSessionLock(turnMatch[1], async () => {
         const session = store.load(turnMatch[1]);
         if (!session) return { code: 404, body: { error: "session not found" } };
 
         // 直前の「沈黙のあった生徒ターン」に、講師が割り込むまでの時間を記録する
-        if (typeof body.interruptedAtMs === "number") {
+        if (Number.isFinite(body.interruptedAtMs) && body.interruptedAtMs >= 0) {
           const last = [...session.turns]
             .reverse()
             .find((t) => t.role === "student" && typeof t.thinkingMs === "number");
-          if (last && last.interruptedAtMs === undefined) last.interruptedAtMs = body.interruptedAtMs;
+          if (last && last.interruptedAtMs === undefined) last.interruptedAtMs = Math.round(body.interruptedAtMs);
         }
 
-        session.turns.push({ role: "teacher", text, at: Date.now() });
+        // speechMs があれば声で話した回。無ければ打った回（別のフラグは要らない）
+        const teacherTurn = { role: "teacher", text, at: Date.now() };
+        if (speechMs !== null) teacherTurn.speechMs = speechMs;
+        session.turns.push(teacherTurn);
         // 生徒役の生成に失敗しても講師の発話が消えないよう、先に保存する
         store.save(session);
 

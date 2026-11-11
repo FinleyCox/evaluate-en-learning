@@ -8,6 +8,7 @@
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
     "check": "node scripts/selfcheck.mjs",
+    "check:voice": "node scripts/voicecheck.mjs",
     "lint": "eslint server scripts public",
     "seed": "node scripts/seed.mjs"
   },

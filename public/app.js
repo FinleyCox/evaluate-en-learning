@@ -1,0 +1,462 @@
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, html) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (html !== undefined) n.innerHTML = html;
+  return n;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const api = async (url, opts) => {
+  const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+};
+
+const S = {
+  config: null,
+  session: null,
+  scene: null,
+  thinking: null, // { start, timer, tick, node }
+};
+
+/* ---------- 起動 ---------- */
+(async function init() {
+  S.config = await api("/api/config");
+  const pill = $("mode-pill");
+  pill.textContent = S.config.mode === "live" ? `live / ${S.config.model}` : "mock（APIキー未設定）";
+  pill.classList.add(S.config.mode);
+
+  const sel = $("scene-select");
+  for (const sc of S.config.scenes) sel.appendChild(new Option(`${sc.group}｜${sc.name}`, sc.id));
+  sel.onchange = renderSceneDesc;
+  renderSceneDesc();
+
+  for (const id of ["t-useful", "t-trust"]) {
+    const s = $(id);
+    s.appendChild(new Option("—", ""));
+    for (let i = 5; i >= 1; i--) s.appendChild(new Option(`${i}`, String(i)));
+    s.value = "4";
+  }
+
+  renderSpec();
+  await refreshSessions();
+  await loadReport();
+})();
+
+document.querySelectorAll(".tab").forEach((t) => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active");
+    $(t.dataset.tab).classList.add("active");
+    if (t.dataset.tab === "report") loadReport();
+  };
+});
+const goTab = (name) => document.querySelector(`.tab[data-tab="${name}"]`).click();
+
+function renderSceneDesc() {
+  const sc = S.config.scenes.find((x) => x.id === $("scene-select").value);
+  $("scene-desc").innerHTML =
+    `<b>想定課題</b>：${esc(sc.issue)}<br><b>生徒役の設定</b>：${esc(sc.studentSetup)}`;
+}
+
+/* ---------- 1. 練習 ---------- */
+$("start-btn").onclick = async () => {
+  const sceneId = $("scene-select").value;
+  const { session, scene } = await api("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify({ sceneId, teacherName: $("teacher-name").value }),
+  });
+  S.session = session;
+  S.scene = scene;
+  $("setup").classList.add("hidden");
+  $("chatwrap").classList.remove("hidden");
+  $("chat-scene").textContent = scene.name;
+  $("chat-persona").textContent = `　生徒役: ${S.config.persona.name}（${S.config.persona.profile.englishLevel.value}）`;
+  $("chat").innerHTML = "";
+  for (const t of session.turns) addBubble(t.role, t.text);
+  $("input").focus();
+};
+
+function addBubble(role, text) {
+  const b = el("div", `bubble ${role}`);
+  b.appendChild(el("span", "who", role === "teacher" ? "講師" : S.config.persona.name));
+  b.appendChild(document.createTextNode(text));
+  $("chat").appendChild(b);
+  $("chat").scrollTop = $("chat").scrollHeight;
+  return b;
+}
+function addNotice(text) {
+  $("chat").appendChild(el("div", "notice", esc(text)));
+  $("chat").scrollTop = $("chat").scrollHeight;
+}
+
+function startThinking(ms, onDone) {
+  const node = el("div", "thinking");
+  node.innerHTML = `<span>${esc(S.config.persona.name)} は考えています</span><span class="dots"><span>●</span><span>●</span><span>●</span></span><b class="t">0.0秒</b>`;
+  $("chat").appendChild(node);
+  $("chat").scrollTop = $("chat").scrollHeight;
+  const start = Date.now();
+  const tick = setInterval(() => {
+    node.querySelector(".t").textContent = ((Date.now() - start) / 1000).toFixed(1) + "秒";
+  }, 100);
+  const timer = setTimeout(() => finishThinking(), ms);
+  S.thinking = { start, timer, tick, node, onDone };
+}
+function finishThinking(interrupted = false) {
+  if (!S.thinking) return 0;
+  const { start, timer, tick, node, onDone } = S.thinking;
+  clearTimeout(timer);
+  clearInterval(tick);
+  node.remove();
+  S.thinking = null;
+  const waited = Date.now() - start;
+  onDone(interrupted, waited);
+  return waited;
+}
+
+function speak(text) {
+  if (!$("tts-toggle").checked || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-US";
+  u.rate = 0.85;
+  speechSynthesis.speak(u);
+}
+
+async function send() {
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text || !S.session) return;
+
+  let interruptedAtMs = null;
+  if (S.thinking) {
+    interruptedAtMs = finishThinking(true);
+    addNotice(`沈黙中に割り込みました（${(interruptedAtMs / 1000).toFixed(1)}秒）`);
+  }
+
+  input.value = "";
+  $("send-btn").disabled = true;
+  addBubble("teacher", text);
+
+  try {
+    const { turn } = await api(`/api/sessions/${S.session.id}/turn`, {
+      method: "POST",
+      body: JSON.stringify({ text, interruptedAtMs }),
+    });
+    startThinking(turn.thinkingMs, () => {
+      addBubble("student", turn.text);
+      speak(turn.text);
+    });
+  } catch (err) {
+    addNotice(`エラー: ${err.message}`);
+  } finally {
+    $("send-btn").disabled = false;
+    input.focus();
+  }
+}
+
+$("send-btn").onclick = send;
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+
+// 音声入力（対応ブラウザのみ）
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) $("mic-btn").style.display = "none";
+else {
+  const rec = new SR();
+  rec.lang = "en-US";
+  rec.interimResults = false;
+  let on = false;
+  rec.onresult = (e) => {
+    $("input").value = ($("input").value + " " + e.results[0][0].transcript).trim();
+  };
+  rec.onend = () => { on = false; $("mic-btn").textContent = "🎤"; };
+  $("mic-btn").onclick = () => {
+    if (on) return rec.stop();
+    on = true;
+    $("mic-btn").textContent = "⏹";
+    rec.start();
+  };
+}
+
+$("finish-btn").onclick = async () => {
+  if (S.thinking) finishThinking(false);
+  await openSession(S.session.id);
+  goTab("review");
+};
+
+/* ---------- 2. 評価・採点 ---------- */
+async function refreshSessions() {
+  const list = await api("/api/sessions");
+  const sel = $("session-picker");
+  sel.innerHTML = "";
+  for (const s of list) {
+    const sc = S.config.scenes.find((x) => x.id === s.sceneId);
+    sel.appendChild(new Option(
+      `${s.id}｜${sc ? sc.name : s.sceneId}｜${s.teacherName}｜${s.turns}ターン${s.trainerRated ? "｜採点済" : ""}`,
+      s.id
+    ));
+  }
+  return list;
+}
+$("load-session").onclick = () => $("session-picker").value && openSession($("session-picker").value);
+
+async function openSession(id) {
+  const s = await api(`/api/sessions/${id}`);
+  S.session = s;
+  S.scene = S.config.scenes.find((x) => x.id === s.sceneId);
+  $("review-empty").classList.add("hidden");
+  $("review-body").classList.remove("hidden");
+  renderMetrics(s.metrics);
+  if (s.evaluation) renderEvaluation(s.evaluation, s.stability);
+  else {
+    $("eval-card").classList.add("hidden");
+    $("trainer-card").classList.add("hidden");
+  }
+  await refreshSessions();
+}
+
+function renderMetrics(m) {
+  const box = $("metrics");
+  if (!m) {
+    box.innerHTML = `<p class="muted">「評価AIで採点する」を押すと、自動計測も合わせて算出します。</p>`;
+    return;
+  }
+  const cards = [
+    ["講師の発話量", `${(m.words.teacherRatio * 100).toFixed(0)}<small>%</small>`, `講師${m.words.teacher}語 / 生徒${m.words.student}語`],
+    ["1回の連続発話 最長", `${m.teacherTurn.maxSeconds}<small>秒</small>`, `平均 ${m.teacherTurn.avgSeconds}秒`],
+    ["沈黙を破るまで 最短", `${m.wait.minSeconds ?? "-"}<small>秒</small>`, `平均 ${m.wait.avgSeconds ?? "-"}秒`],
+    ["割り込み", `${m.wait.interruptions}<small>回</small>`, `沈黙ウィンドウ ${m.wait.windows}回`],
+    ["講師の質問数", `${m.teacherTurn.questionCount}<small>回</small>`, `単語だけの相づち ${m.teacherTurn.shortAckCount}回`],
+    ["生徒役の応答時間", `${m.latency.avgSeconds ?? "-"}<small>秒</small>`, `最大 ${m.latency.maxSeconds ?? "-"}秒 / 基準 2.0秒`],
+  ];
+  box.innerHTML = cards
+    .map(([k, v, sub]) => `<div class="metric"><span class="k">${esc(k)}</span><span class="v">${v}</span><span class="k">${esc(sub)}</span></div>`)
+    .join("");
+}
+
+$("eval-btn").onclick = () => runEvaluation(false);
+$("stability-btn").onclick = () => runEvaluation(true);
+
+async function runEvaluation(stability) {
+  const btns = [$("eval-btn"), $("stability-btn")];
+  btns.forEach((b) => (b.disabled = true));
+  const label = $("eval-btn").textContent;
+  $("eval-btn").textContent = stability ? "3回採点中…" : "採点中…";
+  try {
+    const r = await api(`/api/sessions/${S.session.id}/evaluate`, {
+      method: "POST",
+      body: JSON.stringify({ stability }),
+    });
+    S.session.metrics = r.metrics;
+    S.session.evaluation = r.evaluation;
+    S.session.stability = r.stability;
+    renderMetrics(r.metrics);
+    renderEvaluation(r.evaluation, r.stability);
+  } catch (err) {
+    alert("評価に失敗しました: " + err.message);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+    $("eval-btn").textContent = label;
+  }
+}
+
+const dots = (n) => `<span class="dots5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
+
+function renderEvaluation(ev, stability) {
+  $("eval-card").classList.remove("hidden");
+  $("trainer-card").classList.remove("hidden");
+
+  const axesBox = $("axes");
+  axesBox.innerHTML = "";
+  for (const a of ev.axes) {
+    const def = S.config.rubric.axes.find((x) => x.id === a.id);
+    const node = el("div", `axis${a.applicable ? "" : " na"}`);
+    node.innerHTML = `
+      <div class="axis-head">
+        <div><span class="axis-name">${esc(def.name)}</span>
+          <div class="axis-behavior">${esc(def.behavior)}</div></div>
+        <div class="score">${a.applicable ? `${a.score} / 5 ${dots(a.score)}` : "該当行動なし"}</div>
+      </div>
+      <div class="rationale">${esc(a.rationale)}</div>
+      ${(a.evidence || []).map((e) => `
+        <div class="evidence"><q>${esc(e.speaker === "teacher" ? "講師" : "生徒")}: ${esc(e.quote)}</q>
+        <span class="note">${esc(e.note)}</span></div>`).join("")}`;
+    axesBox.appendChild(node);
+  }
+
+  const c = ev.counts || {};
+  $("summary").innerHTML = `
+    <b>よかった点</b><ul>${(ev.summary.strengths || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <b>次に直す点</b><ul>${(ev.summary.improvements || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <b>次の練習での課題</b><div>${esc(ev.summary.nextPractice)}</div>
+    <div class="muted" style="margin-top:8px">即答で訳語を与えた回数 ${c.directTranslation ?? "-"} / ヒントで引き出した回数 ${c.elicitationPrompts ?? "-"} / 前回の話題を掘り下げた回数 ${c.previousTopicFollowUps ?? "-"}${ev.mock ? "　※MOCKモード" : ""}</div>`;
+
+  $("stability").innerHTML = stability
+    ? `<b>採点の安定性（同じログを${stability.runs}回採点）</b>　最大差 <b>${stability.maxDiff}</b> 段階（基準: 1以内）<br>` +
+      stability.perAxis.map((p) => `${esc(p.name)}: ${p.scores.join(" / ")}（差 ${p.maxDiff}）`).join("　｜　")
+    : "";
+
+  renderTrainerForm(ev);
+  applyBlind();
+}
+
+$("blind-toggle").onchange = applyBlind;
+function applyBlind() {
+  const hide = $("blind-toggle").checked && !S.session?.trainer?.scores;
+  $("axes").classList.toggle("hide-score", hide);
+  $("summary").classList.toggle("hide-score", hide);
+}
+
+function renderTrainerForm(ev) {
+  const box = $("trainer-axes");
+  box.innerHTML = "";
+  for (const a of ev.axes) {
+    const def = S.config.rubric.axes.find((x) => x.id === a.id);
+    const saved = S.session.trainer?.scores?.[a.id];
+    const row = el("div", "axis");
+    row.innerHTML = `
+      <div class="axis-head">
+        <div><span class="axis-name">${esc(def.name)}</span>
+          <div class="axis-behavior">${esc(def.behavior)}${a.applicable ? "" : "（AIは該当行動なしと判定）"}</div></div>
+        <select data-axis="${esc(a.id)}">
+          <option value="">—（採点しない）</option>
+          ${[1, 2, 3, 4, 5].map((i) => `<option value="${i}" ${saved === i ? "selected" : ""}>${i}: ${esc(def.descriptors[i])}</option>`).join("")}
+        </select>
+      </div>`;
+    box.appendChild(row);
+  }
+  const t = S.session.trainer;
+  if (t) {
+    $("t-persona").checked = t.personaFidelity;
+    $("t-scene").checked = t.sceneOccurrence;
+    $("t-useful").value = t.usefulness ? String(t.usefulness) : "";
+    $("t-trust").value = t.feedbackTrust ? String(t.feedbackTrust) : "";
+    $("t-comment").value = t.comment || "";
+  }
+}
+
+$("trainer-submit").onclick = async () => {
+  const scores = {};
+  document.querySelectorAll("#trainer-axes select").forEach((s) => {
+    if (s.value) scores[s.dataset.axis] = Number(s.value);
+  });
+  if (!Object.keys(scores).length) return alert("少なくとも1つの軸を採点してください。");
+  const { trainer } = await api(`/api/sessions/${S.session.id}/trainer`, {
+    method: "POST",
+    body: JSON.stringify({
+      scores,
+      personaFidelity: $("t-persona").checked,
+      sceneOccurrence: $("t-scene").checked,
+      usefulness: $("t-useful").value,
+      feedbackTrust: $("t-trust").value,
+      comment: $("t-comment").value,
+    }),
+  });
+  S.session.trainer = trainer;
+  applyBlind();
+  await refreshSessions();
+  await loadReport();
+  goTab("report");
+};
+
+/* ---------- 3. 判定レポート ---------- */
+$("refresh-report").onclick = loadReport;
+
+async function loadReport() {
+  const r = await api("/api/report");
+  $("report-meta").textContent =
+    `セッション ${r.sessions} 件（うちトレーナー採点済 ${r.scoredSessions} 件）／ κの対象となった軸別スコアのペア ${r.ratedAxisPairs} 組`;
+
+  const fmt = (c) => {
+    if (c.value === null) return "—";
+    if (c.unit === "ratio") return `${(c.value * 100).toFixed(0)}%`;
+    if (c.unit === "secondsMax") return `${c.value}秒`;
+    if (c.unit === "likert5") return `${c.value} / 5`;
+    if (c.unit === "weightedKappa") return `κ ${c.value}`;
+    return `${c.value}段階`;
+  };
+  const target = (c) => {
+    if (c.unit === "ratio") return `${(c.target * 100).toFixed(0)}%以上`;
+    if (c.unit === "secondsMax") return `平均${c.target}秒以内`;
+    if (c.unit === "likert5") return `平均${c.target}以上`;
+    if (c.unit === "weightedKappa") return `${c.target}以上`;
+    return `${c.target}段階以内`;
+  };
+  const row = (c) => `
+    <div class="crit">
+      <div><span class="name">${esc(c.name)}</span><span class="check">${esc(c.check)}　/　${esc(c.method)}</span></div>
+      <div class="target muted">基準 ${esc(target(c))}</div>
+      <div class="value"><b>${esc(fmt(c))}</b></div>
+      <div><span class="badge ${c.pass === null ? "na" : c.pass ? "pass" : "fail"}">${c.pass === null ? "未測定" : c.pass ? "達成" : "未達"}</span></div>
+    </div>`;
+  $("criteria-student").innerHTML = r.studentAI.map(row).join("");
+  $("criteria-evaluator").innerHTML = r.evaluatorAI.map(row).join("");
+
+  const a = r.agreement;
+  $("kappa-overall").innerHTML = `
+    <div class="row between">
+      <div><span class="kappa-big">${a.kappa === null ? "—" : a.kappa}</span>
+        <span class="muted">　重み付きκ（二次重み）／ ${esc(a.label)}　基準 0.61以上</span></div>
+      <div class="muted">完全一致 ${a.exact === null ? "—" : (a.exact * 100).toFixed(0) + "%"}　／　
+        ±1以内 ${a.within1 === null ? "—" : (a.within1 * 100).toFixed(0) + "%"}　／　
+        平均絶対差 ${a.meanAbsDiff ?? "—"}　／　
+        AIの甘辛 ${a.aiBias === null ? "—" : (a.aiBias > 0 ? "+" : "") + a.aiBias}（正=AIが甘い）</div>
+    </div>
+    ${a.note ? `<p class="muted">${esc(a.note)}</p>` : ""}`;
+
+  $("kappa-axes").innerHTML = a.perAxis
+    .map((x) => `<div class="crit"><div><span class="name">${esc(x.name)}</span><span class="check">${esc(x.note || x.label)}</span></div>
+      <div class="muted">n=${x.n}</div><div class="value"><b>${x.kappa === null ? "—" : x.kappa}</b></div>
+      <div><span class="badge ${x.kappa === null ? "na" : x.kappa >= 0.61 ? "pass" : "fail"}">${x.kappa === null ? "—" : x.kappa >= 0.61 ? "達成" : "未達"}</span></div></div>`)
+    .join("");
+
+  const list = await api("/api/sessions");
+  $("session-list").innerHTML = list.length
+    ? `<table><tr><th>ID</th><th>場面</th><th>講師</th><th>ターン</th><th>評価AI</th><th>トレーナー</th><th>安定性</th></tr>` +
+      list.map((s) => {
+        const sc = S.config.scenes.find((x) => x.id === s.sceneId);
+        return `<tr><td><a href="#" data-open="${esc(s.id)}">${esc(s.id)}</a></td><td>${esc(sc ? sc.name : s.sceneId)}</td>
+        <td>${esc(s.teacherName)}</td><td>${s.turns}</td><td>${s.evaluated ? "済" : "—"}</td>
+        <td>${s.trainerRated ? "済" : "—"}</td><td>${s.stability === null ? "—" : s.stability + "段階"}</td></tr>`;
+      }).join("") + `</table>`
+    : `<p class="muted">まだセッションがありません。</p>`;
+  $("session-list").querySelectorAll("a[data-open]").forEach((a2) => {
+    a2.onclick = async (e) => {
+      e.preventDefault();
+      await openSession(a2.dataset.open);
+      goTab("review");
+    };
+  });
+}
+
+/* ---------- 評価軸・ペルソナ ---------- */
+function renderSpec() {
+  $("spec-rubric").innerHTML = S.config.rubric.axes
+    .map((a) => `<div class="spec-item"><b>${esc(a.name)}</b>　<span class="muted">${esc(a.behavior)}</span>
+      <div class="muted">採点の手がかり: ${esc(a.cue)}</div>
+      <div>${[1, 2, 3, 4, 5].map((i) => `${i}: ${esc(a.descriptors[i])}`).join("<br>")}</div></div>`)
+    .join("") + `<p class="muted">出典: ${esc(S.config.rubric.source)}</p>`;
+
+  const p = S.config.persona.profile;
+  $("spec-persona").innerHTML =
+    `<p class="muted">${esc(S.config.persona.label)}</p>` +
+    Object.entries(p)
+      .map(([k, v]) => `<div class="spec-item"><b>${esc(({
+        englishLevel: "英語レベル", age: "年代・職業", goal: "学習目的", personality: "性格・不安",
+        thinkingTime: "考える時間", hobby: "趣味", lastLesson: "前回の話題", condition: "当日の状態",
+      })[k] || k)}</b><span class="origin">${esc(v.origin)}</span><div>${esc(v.value)}</div></div>`)
+      .join("");
+
+  $("spec-scenes").innerHTML = S.config.scenes
+    .map((s) => `<div class="spec-item"><b>${esc(s.name)}</b>　<span class="muted">${esc(s.group)}</span>
+      <div class="muted">想定課題: ${esc(s.issue)}</div><div>生徒役の設定: ${esc(s.studentSetup)}</div></div>`)
+    .join("");
+}

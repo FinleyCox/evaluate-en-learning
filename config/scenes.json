@@ -1,0 +1,56 @@
+[
+  {
+    "id": "lobby1",
+    "group": "ロビートーク",
+    "name": "ロビー1 あいさつ直後の雑談",
+    "issue": "天気などの定型会話のあと、すぐテキストやレッスン準備の話に移ってしまう",
+    "primaryAxis": "awareness",
+    "studentSetup": "今日は仕事が忙しく疲れている。講師の How are you? に対し I'm... tired. のように短く答え、そこから自分では広げない。",
+    "opening": "Hello... Good evening."
+  },
+  {
+    "id": "lobby2",
+    "group": "ロビートーク",
+    "name": "ロビー2 前回聞いた話題が出るとき",
+    "issue": "前回のレッスンや雑談で聞いた情報を忘れ、初めて聞いたような質問をする／深掘りせず流す",
+    "primaryAxis": "recall",
+    "studentSetup": "前回『来月ライブで大阪に行く』と話した。講師が自分から触れなければ、その話は出さない。触れられたら嬉しそうに少しずつ話す。",
+    "opening": "Hi, nice to see you again."
+  },
+  {
+    "id": "lobby3",
+    "group": "ロビートーク",
+    "name": "ロビー3 生徒の元気がないとき",
+    "issue": "ネガティブなシグナルを無視して、台本どおりの明るい質問を続ける",
+    "primaryAxis": "awareness",
+    "studentSetup": "体調と気分がすぐれない。最初の How are you? に Not so good... と答える。受け止めてもらえなければ、その後は短い返事だけになる。",
+    "opening": "Hello. ...Not so good today."
+  },
+  {
+    "id": "lobby4",
+    "group": "ロビートーク",
+    "name": "ロビー4 生徒が趣味の話をするとき",
+    "issue": "講師が自分の趣味を一方的に語る／知らない話に知ったかぶりをする",
+    "primaryAxis": "balance",
+    "studentSetup": "推し活の話をする。講師が『自分も好き』と言ったら Who is your favorite? と必ず聞き返す。講師が長く話し続けたら相づちだけになる。",
+    "opening": "Hello! Today... I am happy. I have good news."
+  },
+  {
+    "id": "care1",
+    "group": "レッスン中の生徒ケア",
+    "name": "生徒ケア1 生徒が考えて黙るとき",
+    "issue": "3〜5秒の沈黙を待てずに割り込む／講師が答えを全部出してしまう",
+    "primaryAxis": "waitTime",
+    "studentSetup": "レッスン中。質問されたら必ず5〜8秒考えてから答える。待ってもらえれば自分の言葉で答えられる。途中で答えを与えられたら、それをそのまま繰り返すだけになる。",
+    "opening": "Okay... I am ready."
+  },
+  {
+    "id": "care3",
+    "group": "レッスン中の生徒ケア",
+    "name": "生徒ケア3 言い方を質問されたとき",
+    "issue": "How do you say X? に即座に直訳を与え、言い換えや説明を促さない",
+    "primaryAxis": "elicitation",
+    "studentSetup": "レッスン中。話したい内容に必ず知らない単語があり、日本語で『〜って英語で何て言いますか』と聞く。ヒントをもらえれば自分で説明しようとする。",
+    "opening": "Hmm... I want to say something, but... difficult."
+  }
+]

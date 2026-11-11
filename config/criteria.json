@@ -1,0 +1,14 @@
+{
+  "source": "提案スライド p.4「PoCの判定基準（案）」",
+  "studentAI": [
+    { "id": "personaFidelity", "name": "ペルソナの再現度", "check": "合意したペルソナらしく話す", "target": 0.7, "unit": "ratio", "method": "トレーナーが会話ごとに判定" },
+    { "id": "sceneOccurrence", "name": "場面の成立", "check": "練習したい場面が会話の中で起きる", "target": 0.8, "unit": "ratio", "method": "トレーナーが会話ごとに判定" },
+    { "id": "responseLatency", "name": "応答時間", "check": "生徒役が話し始めるまでの待ち時間", "target": 2.0, "unit": "secondsMax", "method": "ログの時刻から計測（自動）" },
+    { "id": "usefulness", "name": "練習への有用性", "check": "講師が練習相手として使える", "target": 3.5, "unit": "likert5", "method": "試用した講師が評価" }
+  ],
+  "evaluatorAI": [
+    { "id": "agreement", "name": "採点の一致", "check": "軸別スコアがトレーナーと一致する", "target": 0.61, "unit": "weightedKappa", "method": "AIとトレーナーが別々に採点" },
+    { "id": "stability", "name": "採点の安定性", "check": "採点し直してもスコアがぶれない", "target": 1, "unit": "maxDiffOf3", "method": "同じログを3回採点" },
+    { "id": "feedbackTrust", "name": "フィードバックの納得度", "check": "トレーナーが指導にそのまま使える", "target": 3.5, "unit": "likert5", "method": "試用したトレーナーが評価" }
+  ]
+}
